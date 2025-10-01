@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Song Search Arena - Evaluation</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/eval.css') }}">
+    <script src="https://sdk.scdn.co/spotify-player.js"></script>
+</head>
+<body>
+    <div class="arena-container">
+        <!-- Header -->
+        <header class="arena-header">
+            <h1>Song Search Arena</h1>
+            <div class="header-controls">
+                <div class="progress-info" id="progress-info">
+                    <span id="progress-text">Loading...</span>
+                </div>
+                <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="arena-main" id="arena-main">
+            <!-- Loading State -->
+            <div class="loading-state" id="loading-state">
+                <div class="spinner"></div>
+                <p>Loading task...</p>
+            </div>
+
+            <!-- Completion State -->
+            <div class="completion-state" id="completion-state" style="display: none;">
+                <div class="completion-icon">✓</div>
+                <h2>Evaluation Complete!</h2>
+                <p>Thank you for your participation. You've completed all available tasks.</p>
+                <a href="{{ url_for('logout') }}" class="btn-primary">Logout</a>
+            </div>
+
+            <!-- Task Display -->
+            <div class="task-container" id="task-container" style="display: none;">
+                <!-- Query Display -->
+                <div class="query-section" id="query-section">
+                    <!-- Text query -->
+                    <div class="query-text" id="query-text-display" style="display: none;">
+                        <h3>Find songs matching this description:</h3>
+                        <p class="query-prompt" id="query-text"></p>
+                    </div>
+
+                    <!-- Song query -->
+                    <div class="query-song" id="query-song-display" style="display: none;">
+                        <h3>Find songs similar to:</h3>
+                        <div class="seed-track" id="seed-track">
+                            <!-- Populated by JS -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Results Comparison -->
+                <div class="comparison-section">
+                    <div class="comparison-header">
+                        <h3>Which result list is better?</h3>
+                        <p class="help-text">Compare the two lists below. You can play songs to help decide.</p>
+                    </div>
+
+                    <div class="results-grid">
+                        <!-- Left List -->
+                        <div class="result-list">
+                            <div class="list-header">List A</div>
+                            <div class="track-list" id="left-list">
+                                <!-- Populated by JS -->
+                            </div>
+                        </div>
+
+                        <!-- Right List -->
+                        <div class="result-list">
+                            <div class="list-header">List B</div>
+                            <div class="track-list" id="right-list">
+                                <!-- Populated by JS -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Judgment Controls -->
+                <div class="judgment-section">
+                    <div class="choice-buttons">
+                        <button class="choice-btn" id="btn-left" data-choice="left">
+                            <span class="choice-label">List A is Better</span>
+                        </button>
+                        <button class="choice-btn" id="btn-tie" data-choice="tie">
+                            <span class="choice-label">Tie</span>
+                        </button>
+                        <button class="choice-btn" id="btn-right" data-choice="right">
+                            <span class="choice-label">List B is Better</span>
+                        </button>
+                    </div>
+
+                    <div class="confidence-section" id="confidence-section" style="display: none;">
+                        <label class="confidence-label">How confident are you?</label>
+                        <div class="confidence-buttons">
+                            <button class="confidence-btn" data-confidence="1">Low</button>
+                            <button class="confidence-btn" data-confidence="2">Medium</button>
+                            <button class="confidence-btn" data-confidence="3">High</button>
+                        </div>
+                    </div>
+
+                    <button class="submit-btn" id="submit-btn" style="display: none;">
+                        Submit & Next
+                    </button>
+                </div>
+            </div>
+        </main>
+
+        <!-- Spotify Player -->
+        <div class="player-container" id="player-container">
+            <div class="player-info">
+                <div class="now-playing" id="now-playing">No track playing</div>
+            </div>
+            <div class="player-controls">
+                <button class="player-btn" id="player-prev">⏮</button>
+                <button class="player-btn" id="player-play-pause">▶</button>
+                <button class="player-btn" id="player-next">⏭</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pass data to JS -->
+    <script>
+        window.RATER_ID = "{{ rater_id }}";
+        window.CSRF_TOKEN = "{{ csrf_token() }}";
+    </script>
+    <script src="{{ url_for('static', filename='js/spotify-player.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/arena.js') }}"></script>
+</body>
+</html>

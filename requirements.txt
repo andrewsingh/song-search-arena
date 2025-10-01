@@ -1,0 +1,8 @@
+flask>=3.0.0
+flask-session>=0.8.0
+spotipy>=2.24.0
+pydantic>=2.8.0
+supabase>=2.0.0
+python-dotenv>=1.0.0
+numpy>=1.24.0
+pandas>=2.2.0

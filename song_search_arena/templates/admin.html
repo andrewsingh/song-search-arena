@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - Song Search Arena</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+</head>
+<body>
+    <div class="admin-container">
+        <header class="admin-header">
+            <h1>Song Search Arena - Admin</h1>
+            <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
+        </header>
+
+        <!-- Stats Section -->
+        <section class="stats-section">
+            <h2>System Statistics</h2>
+            <div class="stats-grid" id="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-queries">-</div>
+                    <div class="stat-label">Queries</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-systems">-</div>
+                    <div class="stat-label">Systems</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-pairs">-</div>
+                    <div class="stat-label">Pairs</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-tasks">-</div>
+                    <div class="stat-label">Tasks</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-completed">-</div>
+                    <div class="stat-label">Completed</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-judgments">-</div>
+                    <div class="stat-label">Judgments</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-raters">-</div>
+                    <div class="stat-label">Raters</div>
+                </div>
+            </div>
+
+            <!-- Active Policy -->
+            <div class="policy-card" id="policy-card">
+                <h3>Active Policy</h3>
+                <div id="policy-info">No active policy</div>
+            </div>
+        </section>
+
+        <!-- Upload Section -->
+        <section class="upload-section">
+            <h2>Data Upload</h2>
+
+            <!-- Queries Upload -->
+            <div class="upload-card">
+                <h3>Upload Queries</h3>
+                <p class="help-text">JSON array of EvalQuery objects (text or song queries)</p>
+                <div class="upload-methods">
+                    <div class="method">
+                        <label class="file-upload-label">
+                            <input type="file" id="queries-file" accept=".json" />
+                            <span class="upload-btn">Choose File</span>
+                        </label>
+                        <span id="queries-file-name" class="file-name"></span>
+                    </div>
+                    <div class="method">
+                        <textarea id="queries-textarea" placeholder='Paste JSON array here...' rows="6"></textarea>
+                    </div>
+                </div>
+                <button onclick="uploadQueries()" class="submit-btn">Upload Queries</button>
+                <div id="queries-result" class="result-message"></div>
+            </div>
+
+            <!-- Responses Upload -->
+            <div class="upload-card">
+                <h3>Upload System Responses</h3>
+                <p class="help-text">JSON array of EvalResponse objects (contains candidates)</p>
+                <div class="upload-methods">
+                    <div class="method">
+                        <label class="file-upload-label">
+                            <input type="file" id="responses-file" accept=".json" />
+                            <span class="upload-btn">Choose File</span>
+                        </label>
+                        <span id="responses-file-name" class="file-name"></span>
+                    </div>
+                    <div class="method">
+                        <textarea id="responses-textarea" placeholder='Paste JSON array here...' rows="6"></textarea>
+                    </div>
+                </div>
+                <button onclick="uploadResponses()" class="submit-btn">Upload Responses</button>
+                <div id="responses-result" class="result-message"></div>
+            </div>
+
+            <!-- Policy Upload -->
+            <div class="upload-card">
+                <h3>Set Active Policy</h3>
+                <p class="help-text">Policy configuration (version, retrieval_depth_k, final_k, max_per_artist, exclude_seed_artist)</p>
+                <textarea id="policy-textarea" placeholder='Paste policy JSON here...' rows="6"></textarea>
+                <button onclick="setPolicy()" class="submit-btn">Set Policy</button>
+                <div id="policy-result" class="result-message"></div>
+            </div>
+        </section>
+
+        <!-- Materialization Section -->
+        <section class="materialize-section">
+            <h2>Materialization</h2>
+            <div class="materialize-card">
+                <p>Generate final lists, create pairs, and create tasks from uploaded data.</p>
+                <div class="materialize-controls">
+                    <label for="target-judgments">Target Judgments per Task:</label>
+                    <input type="number" id="target-judgments" value="3" min="1" max="10" />
+                    <button onclick="materialize()" class="submit-btn">Materialize</button>
+                </div>
+                <div id="materialize-result" class="result-message"></div>
+            </div>
+        </section>
+
+        <!-- Progress Section -->
+        <section class="progress-section">
+            <h2>Progress Dashboard</h2>
+            <button onclick="loadProgress()" class="refresh-btn">Refresh Progress</button>
+            <div id="progress-grid" class="progress-grid">
+                <p class="help-text">Progress data will appear here after materialization</p>
+            </div>
+        </section>
+
+        <!-- Export Section -->
+        <section class="export-section">
+            <h2>Export Data</h2>
+            <p class="help-text">Export data to Supabase Storage for download</p>
+
+            <div class="export-grid">
+                <!-- Judgments Export -->
+                <div class="export-card">
+                    <h3>Judgments</h3>
+                    <p>All rater judgments with full details</p>
+                    <div class="export-buttons">
+                        <button onclick="exportData('judgments', 'csv')" class="export-btn">Export CSV</button>
+                        <button onclick="exportData('judgments', 'json')" class="export-btn">Export JSON</button>
+                    </div>
+                </div>
+
+                <!-- Final Lists Export -->
+                <div class="export-card">
+                    <h3>Final Lists</h3>
+                    <p>Post-processed final lists for active policy</p>
+                    <div class="export-buttons">
+                        <button onclick="exportData('final_lists', 'csv')" class="export-btn">Export CSV</button>
+                        <button onclick="exportData('final_lists', 'json')" class="export-btn">Export JSON</button>
+                    </div>
+                </div>
+
+                <!-- Task Progress Export -->
+                <div class="export-card">
+                    <h3>Task Progress</h3>
+                    <p>Completion status for all tasks</p>
+                    <div class="export-buttons">
+                        <button onclick="exportData('task_progress', 'csv')" class="export-btn">Export CSV</button>
+                    </div>
+                </div>
+
+                <!-- Rater Stats Export -->
+                <div class="export-card">
+                    <h3>Rater Statistics</h3>
+                    <p>Per-rater completion and confidence stats</p>
+                    <div class="export-buttons">
+                        <button onclick="exportData('rater_stats', 'csv')" class="export-btn">Export CSV</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="export-result" class="result-message"></div>
+        </section>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+</body>
+</html>
