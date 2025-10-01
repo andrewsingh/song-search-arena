@@ -6,6 +6,13 @@
     <title>Song Search Arena - Evaluation</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/eval.css') }}">
+    <script>
+        // Define Spotify SDK callback before SDK loads
+        window.onSpotifyWebPlaybackSDKReady = () => {
+            window.spotifySDKReady = true;
+            console.log('Spotify Web Playback SDK is ready');
+        };
+    </script>
     <script src="https://sdk.scdn.co/spotify-player.js"></script>
 </head>
 <body>
@@ -65,7 +72,7 @@
 
                     <div class="results-grid">
                         <!-- Left List -->
-                        <div class="result-list">
+                        <div class="result-list" id="left-result-list">
                             <div class="list-header">List A</div>
                             <div class="track-list" id="left-list">
                                 <!-- Populated by JS -->
@@ -73,7 +80,7 @@
                         </div>
 
                         <!-- Right List -->
-                        <div class="result-list">
+                        <div class="result-list" id="right-result-list">
                             <div class="list-header">List B</div>
                             <div class="track-list" id="right-list">
                                 <!-- Populated by JS -->
@@ -97,7 +104,7 @@
                     </div>
 
                     <div class="confidence-section" id="confidence-section" style="display: none;">
-                        <label class="confidence-label">How confident are you?</label>
+                        <label class="confidence-label">How confident are you in your answer?</label>
                         <div class="confidence-buttons">
                             <button class="confidence-btn" data-confidence="1">Low</button>
                             <button class="confidence-btn" data-confidence="2">Medium</button>
@@ -113,16 +120,51 @@
         </main>
 
         <!-- Spotify Player -->
-        <div class="player-container" id="player-container">
-            <div class="player-info">
-                <div class="now-playing" id="now-playing">No track playing</div>
+        <footer class="player-footer">
+            <div id="spotify-player" class="spotify-player">
+                <!-- Spotify Attribution -->
+                <div class="spotify-attribution">
+                    <a href="https://open.spotify.com" target="_blank" rel="noopener noreferrer" class="spotify-logo-link">
+                        <img src="{{ url_for('static', filename='assets/2024-spotify-full-logo/Full_Logo_Green_RGB.svg') }}"
+                             alt="Spotify" class="spotify-logo">
+                    </a>
+                </div>
+
+                <div class="player-content">
+                    <div class="player-track-info">
+                        <img id="player-cover" class="player-cover" src="" alt="Album Cover">
+                        <div class="track-details">
+                            <div id="player-title" class="player-title">No track selected</div>
+                            <div id="player-artist" class="player-artist">Click on a track card to play it</div>
+                        </div>
+                    </div>
+
+                    <div class="player-controls">
+                        <button id="player-prev" class="control-btn">⏮</button>
+                        <button id="player-play-pause" class="control-btn play-btn">▶</button>
+                        <button id="player-next" class="control-btn">⏭</button>
+                    </div>
+
+                    <div class="progress-container">
+                        <span id="current-time" class="time-label">0:00</span>
+                        <div class="progress-bar-container" id="progress-bar-container">
+                            <div id="progress-bar" class="progress-bar">
+                                <div id="progress-filled" class="progress-filled"></div>
+                            </div>
+                        </div>
+                        <span id="total-time" class="time-label">0:00</span>
+                    </div>
+
+                    <!-- Auth Status (moved from header) -->
+                    <div class="auth-status">
+                        <div class="spotify-status" id="spotify-status">
+                            <span class="status-indicator"></span>
+                            <span class="status-text">Connecting to Spotify...</span>
+                        </div>
+                    </div>
+                </div>
             </div>
-            <div class="player-controls">
-                <button class="player-btn" id="player-prev">⏮</button>
-                <button class="player-btn" id="player-play-pause">▶</button>
-                <button class="player-btn" id="player-next">⏭</button>
-            </div>
-        </div>
+        </footer>
     </div>
 
     <!-- Pass data to JS -->

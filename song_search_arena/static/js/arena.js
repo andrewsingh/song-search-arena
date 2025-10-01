@@ -19,14 +19,27 @@ class ArenaApp {
             seedTrack: document.getElementById('seed-track'),
             leftList: document.getElementById('left-list'),
             rightList: document.getElementById('right-list'),
+            leftResultList: document.getElementById('left-result-list'),
+            rightResultList: document.getElementById('right-result-list'),
             confidenceSection: document.getElementById('confidence-section'),
             submitBtn: document.getElementById('submit-btn'),
             progressText: document.getElementById('progress-text'),
-            nowPlaying: document.getElementById('now-playing'),
+            spotifyStatus: document.getElementById('spotify-status'),
+            playerCover: document.getElementById('player-cover'),
+            playerTitle: document.getElementById('player-title'),
+            playerArtist: document.getElementById('player-artist'),
             playerPrev: document.getElementById('player-prev'),
             playerPlayPause: document.getElementById('player-play-pause'),
-            playerNext: document.getElementById('player-next')
+            playerNext: document.getElementById('player-next'),
+            currentTime: document.getElementById('current-time'),
+            totalTime: document.getElementById('total-time'),
+            progressFilled: document.getElementById('progress-filled'),
+            progressBarContainer: document.getElementById('progress-bar-container')
         };
+
+        // Track the currently playing track ID and store track metadata
+        this.currentPlayingTrackId = null;
+        this.currentTracks = {}; // Store all tracks from current task by ID
 
         this.init();
     }
@@ -52,6 +65,27 @@ class ArenaApp {
         // Choice buttons
         document.querySelectorAll('.choice-btn').forEach(btn => {
             btn.addEventListener('click', (e) => this.handleChoiceClick(e));
+
+            // Add hover listeners for list highlighting
+            btn.addEventListener('mouseenter', (e) => {
+                // Only highlight on hover if button is not already selected
+                if (!btn.classList.contains('selected')) {
+                    const choice = btn.dataset.choice;
+                    this.updateListHighlights(choice, false);
+                }
+            });
+
+            btn.addEventListener('mouseleave', (e) => {
+                // Remove hover highlights, but keep selected highlights
+                if (!btn.classList.contains('selected')) {
+                    this.clearListHighlights();
+                    // Re-apply highlights if another button is selected
+                    const selectedBtn = document.querySelector('.choice-btn.selected');
+                    if (selectedBtn) {
+                        this.updateListHighlights(selectedBtn.dataset.choice, true);
+                    }
+                }
+            });
         });
 
         // Confidence buttons
@@ -71,6 +105,11 @@ class ArenaApp {
         }
         if (this.elements.playerNext) {
             this.elements.playerNext.addEventListener('click', () => this.nextTrack());
+        }
+
+        // Progress bar seeking
+        if (this.elements.progressBarContainer) {
+            this.elements.progressBarContainer.addEventListener('click', (e) => this.seekToPosition(e));
         }
     }
 
@@ -94,40 +133,98 @@ class ArenaApp {
     async initPlayer() {
         if (!this.accessToken) {
             console.error('Cannot initialize player: no access token');
+            this.updateSpotifyStatus('error', 'Failed to authenticate');
             return;
         }
 
         try {
+            this.updateSpotifyStatus('connecting', 'Connecting to Spotify...');
+
             // Create Spotify player instance
             this.spotifyPlayer = new SpotifyPlayer(this.accessToken);
 
             // Set up callbacks
-            this.spotifyPlayer.onNowPlayingChange = (track) => {
-                this.updateNowPlaying(track);
-            };
-
             this.spotifyPlayer.onPlaybackStateChange = (state) => {
                 this.updatePlayButton(state.paused);
+                if (state.position !== undefined && state.duration !== undefined) {
+                    this.updateProgress(state.position, state.duration);
+                }
+            };
+
+            this.spotifyPlayer.onPlayerReady = () => {
+                this.updateSpotifyStatus('connected', 'Connected to Spotify');
+            };
+
+            this.spotifyPlayer.onPlayerError = () => {
+                this.updateSpotifyStatus('error', 'Spotify connection error');
             };
 
             // Initialize player (async - will complete in background)
             await this.spotifyPlayer.init();
         } catch (error) {
             console.error('Error initializing Spotify player:', error);
+            this.updateSpotifyStatus('error', 'Failed to connect');
         }
     }
 
-    updateNowPlaying(track) {
-        if (track) {
-            this.elements.nowPlaying.textContent = `${track.name} - ${track.artists.map(a => a.name).join(', ')}`;
-        } else {
-            this.elements.nowPlaying.textContent = 'No track playing';
+    updateSpotifyStatus(status, text) {
+        if (!this.elements.spotifyStatus) return;
+
+        this.elements.spotifyStatus.className = `spotify-status ${status}`;
+        const statusText = this.elements.spotifyStatus.querySelector('.status-text');
+        if (statusText) {
+            statusText.textContent = text;
         }
     }
 
     updatePlayButton(isPaused) {
         if (this.elements.playerPlayPause) {
             this.elements.playerPlayPause.textContent = isPaused ? '▶' : '⏸';
+        }
+    }
+
+    updateProgress(position, duration) {
+        if (this.elements.progressFilled && duration > 0) {
+            const percentage = (position / duration) * 100;
+            this.elements.progressFilled.style.width = `${percentage}%`;
+        }
+
+        if (this.elements.currentTime) {
+            this.elements.currentTime.textContent = this.formatTime(position);
+        }
+
+        if (this.elements.totalTime) {
+            this.elements.totalTime.textContent = this.formatTime(duration);
+        }
+    }
+
+    formatTime(ms) {
+        if (!ms || ms < 0) return '0:00';
+        const minutes = Math.floor(ms / 60000);
+        const seconds = Math.floor((ms % 60000) / 1000);
+        return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    }
+
+    async seekToPosition(event) {
+        if (!this.spotifyPlayer || !this.spotifyPlayer.isPlayerReady) {
+            console.log('🎧 Player not ready for seeking');
+            return;
+        }
+
+        try {
+            const progressBar = event.currentTarget;
+            const rect = progressBar.getBoundingClientRect();
+            const percentage = (event.clientX - rect.left) / rect.width;
+
+            // Get current state to determine duration
+            const state = await this.spotifyPlayer.getCurrentState();
+            if (state && state.duration) {
+                const newPosition = Math.floor(percentage * state.duration);
+                await this.spotifyPlayer.seek(newPosition);
+                console.log(`🎧 Seeked to position: ${this.formatTime(newPosition)}`);
+            }
+        } catch (error) {
+            console.error('❌ Error seeking:', error);
         }
     }
 
@@ -138,15 +235,64 @@ class ArenaApp {
     }
 
     async previousTrack() {
-        if (this.spotifyPlayer) {
-            await this.spotifyPlayer.previousTrack();
+        if (!this.currentPlayingTrackId) {
+            console.log('No track currently playing');
+            return;
+        }
+
+        // Find which list contains the current track and get previous track
+        const prevTrack = this.getAdjacentTrack(-1);
+        if (prevTrack) {
+            await this.playTrack(prevTrack.id);
+        } else {
+            console.log('Already at first track in list');
         }
     }
 
     async nextTrack() {
-        if (this.spotifyPlayer) {
-            await this.spotifyPlayer.nextTrack();
+        if (!this.currentPlayingTrackId) {
+            console.log('No track currently playing');
+            return;
         }
+
+        // Find which list contains the current track and get next track
+        const nextTrack = this.getAdjacentTrack(1);
+        if (nextTrack) {
+            await this.playTrack(nextTrack.id);
+        } else {
+            console.log('Already at last track in list');
+        }
+    }
+
+    getAdjacentTrack(direction) {
+        // direction: -1 for previous, 1 for next
+        // Check both left and right lists
+        const leftCards = Array.from(this.elements.leftList.querySelectorAll('.track-card'));
+        const rightCards = Array.from(this.elements.rightList.querySelectorAll('.track-card'));
+
+        // Find current track in left list
+        const leftIndex = leftCards.findIndex(card => card.dataset.trackId === this.currentPlayingTrackId);
+        if (leftIndex !== -1) {
+            const newIndex = leftIndex + direction;
+            if (newIndex >= 0 && newIndex < leftCards.length) {
+                const trackId = leftCards[newIndex].dataset.trackId;
+                return this.currentTracks[trackId];
+            }
+            return null;
+        }
+
+        // Find current track in right list
+        const rightIndex = rightCards.findIndex(card => card.dataset.trackId === this.currentPlayingTrackId);
+        if (rightIndex !== -1) {
+            const newIndex = rightIndex + direction;
+            if (newIndex >= 0 && newIndex < rightCards.length) {
+                const trackId = rightCards[newIndex].dataset.trackId;
+                return this.currentTracks[trackId];
+            }
+            return null;
+        }
+
+        return null;
     }
 
     async loadProgress() {
@@ -157,9 +303,13 @@ class ArenaApp {
             if (response.ok) {
                 this.elements.progressText.textContent =
                     `Progress: ${data.completed_tasks}/${data.total_tasks} (${data.percentage}%)`;
+            } else {
+                console.error('Progress API error:', data);
+                this.elements.progressText.textContent = 'Progress: N/A';
             }
         } catch (error) {
             console.error('Error loading progress:', error);
+            this.elements.progressText.textContent = 'Progress: Error';
         }
     }
 
@@ -208,14 +358,33 @@ class ArenaApp {
             // Song query
             if (task.seed_track) {
                 this.elements.seedTrack.innerHTML = this.renderTrackCard(task.seed_track, true);
+                this.attachPlayButtonListeners(this.elements.seedTrack);
             }
             this.elements.querySongDisplay.style.display = 'block';
             this.elements.queryTextDisplay.style.display = 'none';
         }
 
+        // Store track metadata and render lists
+        this.currentTracks = {};
+
+        // Store tracks from all lists
+        const allTracks = [
+            ...(Array.isArray(task.left_list) ? task.left_list : []),
+            ...(Array.isArray(task.right_list) ? task.right_list : [])
+        ];
+        if (task.seed_track) {
+            allTracks.push(task.seed_track);
+        }
+        allTracks.forEach(track => {
+            if (track && track.id) {
+                this.currentTracks[track.id] = track;
+            }
+        });
+
         // Render left and right lists with null checks
         if (Array.isArray(task.left_list)) {
             this.elements.leftList.innerHTML = task.left_list.map(t => this.renderTrackCard(t)).join('');
+            this.attachPlayButtonListeners(this.elements.leftList);
         } else {
             console.error('Invalid left_list:', task.left_list);
             this.elements.leftList.innerHTML = '';
@@ -223,6 +392,7 @@ class ArenaApp {
 
         if (Array.isArray(task.right_list)) {
             this.elements.rightList.innerHTML = task.right_list.map(t => this.renderTrackCard(t)).join('');
+            this.attachPlayButtonListeners(this.elements.rightList);
         } else {
             console.error('Invalid right_list:', task.right_list);
             this.elements.rightList.innerHTML = '';
@@ -244,48 +414,140 @@ class ArenaApp {
             return '';
         }
 
-        // Spotify format: artists is array of objects with 'name' field
+        // Extract metadata from Spotify format
         const artists = Array.isArray(track.artists)
             ? track.artists.map(a => a.name).join(', ')
             : 'Unknown Artist';
         const songName = track.name || 'Unknown Song';
+        const albumName = track.album?.name || '';
 
-        // Create elements safely to avoid XSS
-        const div = document.createElement('div');
-        div.className = `track-card ${isSeed ? 'seed-card' : ''}`;
-        div.dataset.trackId = track.id;
+        // Get album art (prefer medium size, 300x300)
+        const albumArt = track.album?.images?.[1]?.url || track.album?.images?.[0]?.url || '';
 
-        const trackInfo = document.createElement('div');
-        trackInfo.className = 'track-info';
+        // Build HTML string (event listeners will be attached separately)
+        let html = `<div class="track-card ${isSeed ? 'seed-card' : ''}" data-track-id="${track.id}">`;
 
-        const trackName = document.createElement('div');
-        trackName.className = 'track-name';
-        trackName.textContent = songName;
+        if (albumArt) {
+            html += `<img class="track-album-art" src="${this.escapeHtml(albumArt)}" alt="${this.escapeHtml(albumName)} cover">`;
+        }
 
-        const trackArtist = document.createElement('div');
-        trackArtist.className = 'track-artist';
-        trackArtist.textContent = artists;
+        html += `<div class="track-info">`;
+        html += `<div class="track-name">${this.escapeHtml(songName)}</div>`;
+        html += `<div class="track-artist">${this.escapeHtml(artists)}</div>`;
 
-        trackInfo.appendChild(trackName);
-        trackInfo.appendChild(trackArtist);
+        html += `</div>`;
+        html += `<button class="play-btn" data-track-id="${track.id}">▶</button>`;
+        html += `</div>`;
 
-        const playBtn = document.createElement('button');
-        playBtn.className = 'play-btn';
-        playBtn.textContent = '▶';
-        playBtn.addEventListener('click', () => this.playTrack(track.id));
+        return html;
+    }
 
-        div.appendChild(trackInfo);
-        div.appendChild(playBtn);
+    attachPlayButtonListeners(container) {
+        // Find all track cards in the container and make them clickable
+        const trackCards = container.querySelectorAll('.track-card');
+        trackCards.forEach(card => {
+            const trackId = card.dataset.trackId;
+            if (trackId) {
+                // Make entire card clickable
+                card.addEventListener('click', (e) => {
+                    console.log(`🎵 Track card clicked for track: ${trackId}`);
+                    this.playTrack(trackId);
+                });
 
-        return div.outerHTML;
+                // Also handle play button (but let it bubble to card click)
+                const playBtn = card.querySelector('.play-btn');
+                if (playBtn) {
+                    playBtn.addEventListener('click', (e) => {
+                        // Don't stop propagation - let it bubble to card click
+                        console.log(`🎵 Play button clicked for track: ${trackId}`);
+                    });
+                }
+            }
+        });
     }
 
     async playTrack(trackId) {
+        console.log(`🎵 playTrack called for: ${trackId}`);
+
+        // Get track metadata
+        const track = this.currentTracks[trackId];
+        if (!track) {
+            console.error(`Track ${trackId} not found in current tracks`);
+            return;
+        }
+
+        // Update player UI immediately
+        this.updatePlayerDisplay(track);
+
+        // Update playing state on cards
+        this.updatePlayingCards(trackId);
+
+        // Play the track
         if (this.spotifyPlayer) {
             await this.spotifyPlayer.playTrack(trackId);
         } else {
             // Fallback to opening in Spotify
             window.open(`https://open.spotify.com/track/${trackId}`, '_blank');
+        }
+    }
+
+    updatePlayerDisplay(track) {
+        // Update cover art
+        const albumArt = track.album?.images?.[1]?.url || track.album?.images?.[0]?.url || '';
+        if (this.elements.playerCover && albumArt) {
+            this.elements.playerCover.src = albumArt;
+            this.elements.playerCover.alt = `${track.album?.name || 'Album'} cover`;
+        }
+
+        // Update title and artist
+        if (this.elements.playerTitle) {
+            this.elements.playerTitle.textContent = track.name || 'Unknown Song';
+        }
+
+        if (this.elements.playerArtist) {
+            const artists = Array.isArray(track.artists)
+                ? track.artists.map(a => a.name).join(', ')
+                : 'Unknown Artist';
+            this.elements.playerArtist.textContent = artists;
+        }
+    }
+
+    updatePlayingCards(trackId) {
+        // Remove 'playing' class from all cards
+        document.querySelectorAll('.track-card').forEach(card => {
+            card.classList.remove('playing');
+        });
+
+        // Add 'playing' class to the current track card
+        const playingCard = document.querySelector(`.track-card[data-track-id="${trackId}"]`);
+        if (playingCard) {
+            playingCard.classList.add('playing');
+        }
+
+        this.currentPlayingTrackId = trackId;
+    }
+
+    updateListHighlights(choice, persist = false) {
+        // Clear all highlights first
+        this.clearListHighlights();
+
+        // Apply highlights based on choice
+        if (choice === 'left') {
+            this.elements.leftResultList.classList.add('highlighted');
+        } else if (choice === 'right') {
+            this.elements.rightResultList.classList.add('highlighted');
+        } else if (choice === 'tie') {
+            this.elements.leftResultList.classList.add('highlighted');
+            this.elements.rightResultList.classList.add('highlighted');
+        }
+    }
+
+    clearListHighlights() {
+        if (this.elements.leftResultList) {
+            this.elements.leftResultList.classList.remove('highlighted');
+        }
+        if (this.elements.rightResultList) {
+            this.elements.rightResultList.classList.remove('highlighted');
         }
     }
 
@@ -296,6 +558,9 @@ class ArenaApp {
         // Update UI
         document.querySelectorAll('.choice-btn').forEach(b => b.classList.remove('selected'));
         btn.classList.add('selected');
+
+        // Persist list highlights for selected choice
+        this.updateListHighlights(this.selectedChoice, true);
 
         // Show confidence section
         this.elements.confidenceSection.style.display = 'block';
@@ -367,6 +632,9 @@ class ArenaApp {
         this.elements.submitBtn.style.display = 'none';
         this.elements.submitBtn.disabled = false;
         this.elements.submitBtn.textContent = 'Submit & Next';
+
+        // Clear list highlights
+        this.clearListHighlights();
     }
 
     showLoading() {

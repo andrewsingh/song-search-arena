@@ -51,6 +51,40 @@
     color: #ffffff;
 }
 
+/* Spotify Status */
+.spotify-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.status-indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #95a5a6;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+.spotify-status.connected .status-indicator {
+    background: #1db954;
+    animation: none;
+}
+
+.spotify-status.error .status-indicator {
+    background: #e74c3c;
+    animation: none;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+}
+
 /* Main Content */
 .arena-main {
     min-height: 60vh;
@@ -131,8 +165,9 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 12px;
     background: #2a2a3e;
-    padding: 16px;
+    padding: 12px;
     border-radius: 8px;
     margin-bottom: 12px;
     border: 1px solid #3a3a4e;
@@ -142,6 +177,12 @@
 .track-card:hover {
     border-color: #667eea;
     background: #2e2e40;
+    cursor: pointer;
+}
+
+.track-card.playing {
+    border-color: #667eea;
+    background: #2e2e40;
 }
 
 .track-card.seed-card {
@@ -149,8 +190,12 @@
     border-color: #667eea;
 }
 
-.track-info {
-    flex: 1;
+.track-album-art {
+    width: 60px;
+    height: 60px;
+    border-radius: 4px;
+    object-fit: cover;
+    flex-shrink: 0;
 }
 
 .track-name {
@@ -158,11 +203,26 @@
     font-weight: 600;
     color: #ffffff;
     margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .track-artist {
     font-size: 14px;
     color: #b0b0b0;
+    margin-bottom: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.track-album {
+    font-size: 12px;
+    color: #888;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .play-btn {
@@ -214,6 +274,12 @@
     border-radius: 8px;
     padding: 20px;
     border: 2px solid #3a3a4e;
+    transition: border-color 0.2s, background 0.2s;
+}
+
+.result-list.highlighted {
+    border-color: #667eea;
+    background: #2e2e40;
 }
 
 .list-header {
@@ -337,49 +403,186 @@
 }
 
 /* Spotify Player */
-.player-container {
+/* Player Footer */
+.player-footer {
     position: fixed;
     bottom: 0;
     left: 0;
     right: 0;
-    background: #1e1e2f;
-    border-top: 2px solid #3a3a4e;
-    padding: 16px 20px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.3);
+    z-index: 1000;
+    background: rgba(18, 18, 23, 0.95);
+    border-top: 1px solid #3a3a4e;
+    backdrop-filter: blur(20px);
+    padding: 16px 24px;
 }
 
-.player-info {
+/* Spotify Attribution */
+.spotify-attribution {
+    position: absolute;
+    top: 8px;
+    right: 16px;
+    z-index: 1001;
+}
+
+.spotify-logo-link {
+    display: inline-block;
+    text-decoration: none;
+    opacity: 0.8;
+    transition: opacity 0.2s;
+}
+
+.spotify-logo-link:hover {
+    opacity: 1;
+}
+
+.spotify-logo {
+    height: 24px;
+    width: auto;
+    transition: opacity 0.2s;
+}
+
+.spotify-player {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.player-content {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+}
+
+.player-track-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    min-width: 0;
+}
+
+.track-info {
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    min-width: 0;
+}
+
+.player-cover {
+    width: 48px;
+    height: 48px;
+    border-radius: 6px;
+    object-fit: cover;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.track-details {
+    min-width: 0;
     flex: 1;
 }
 
-.now-playing {
-    font-size: 14px;
-    color: #ffffff;
-    font-weight: 500;
+.player-title {
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.player-artist {
+    color: #b0b0b0;
+    font-size: 0.9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .player-controls {
     display: flex;
+    align-items: center;
     gap: 12px;
 }
 
-.player-btn {
-    background: #2a2a3e;
-    color: #ffffff;
+.control-btn {
+    background: none;
     border: none;
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    font-size: 16px;
+    color: #b0b0b0;
+    font-size: 1.2rem;
     cursor: pointer;
+    padding: 8px;
+    border-radius: 50%;
     transition: all 0.2s;
 }
 
-.player-btn:hover {
+.control-btn:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.control-btn.play-btn {
+    background: #667eea !important;
+    color: white !important;
+    font-size: 1rem;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.control-btn.play-btn:hover {
+    background: #764ba2 !important;
+}
+
+/* Progress Bar */
+.progress-container {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+    max-width: 300px;
+}
+
+.time-label {
+    font-size: 0.8rem;
+    color: #b0b0b0;
+    min-width: 40px;
+    text-align: center;
+}
+
+.progress-bar-container {
+    flex: 1;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 2px;
+    cursor: pointer;
+    position: relative;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 100%;
+    position: relative;
+}
+
+.progress-filled {
+    height: 100%;
     background: #667eea;
+    border-radius: 2px;
+    width: 0%;
+    transition: width 0.1s ease;
+}
+
+/* Auth Status */
+.auth-status {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    font-size: 0.8rem;
+    color: #b0b0b0;
+    flex: 0 0 auto;
+    margin-left: auto;
 }
 
 /* Responsive */

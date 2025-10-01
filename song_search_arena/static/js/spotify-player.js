@@ -10,6 +10,8 @@ class SpotifyPlayer {
         // Callbacks
         this.onNowPlayingChange = null;
         this.onPlaybackStateChange = null;
+        this.onPlayerReady = null;
+        this.onPlayerError = null;
     }
 
     async init() {
@@ -48,9 +50,13 @@ class SpotifyPlayer {
             if (window.Spotify) {
                 resolve();
             } else {
-                window.onSpotifyWebPlaybackSDKReady = () => {
-                    resolve();
-                };
+                // Check if SDK is ready (set by global callback in HTML)
+                const checkReady = setInterval(() => {
+                    if (window.Spotify || window.spotifySDKReady) {
+                        clearInterval(checkReady);
+                        resolve();
+                    }
+                }, 100);
             }
         });
     }
@@ -59,14 +65,17 @@ class SpotifyPlayer {
         // Error handling
         this.player.addListener('initialization_error', ({ message }) => {
             console.error('Spotify initialization error:', message);
+            if (this.onPlayerError) this.onPlayerError(message);
         });
 
         this.player.addListener('authentication_error', ({ message }) => {
             console.error('Spotify authentication error:', message);
+            if (this.onPlayerError) this.onPlayerError(message);
         });
 
         this.player.addListener('account_error', ({ message }) => {
             console.error('Spotify account error:', message);
+            if (this.onPlayerError) this.onPlayerError(message);
         });
 
         this.player.addListener('playback_error', ({ message }) => {
@@ -97,6 +106,7 @@ class SpotifyPlayer {
             console.log('Spotify Player Ready with Device ID', device_id);
             this.deviceId = device_id;
             this.isPlayerReady = true;
+            if (this.onPlayerReady) this.onPlayerReady();
         });
 
         // Not Ready
@@ -107,6 +117,9 @@ class SpotifyPlayer {
     }
 
     async playTrack(trackId) {
+        console.log(`🎵 playTrack called for track: ${trackId}`);
+        console.log(`🎵 Player ready: ${this.isPlayerReady}, Device ID: ${this.deviceId}`);
+
         if (!this.isPlayerReady || !this.deviceId) {
             console.log('Player not ready, opening in Spotify app');
             window.open(`https://open.spotify.com/track/${trackId}`, '_blank');
@@ -114,6 +127,10 @@ class SpotifyPlayer {
         }
 
         try {
+            // Ensure device is active
+            await this.ensureDeviceActive();
+
+            console.log(`🎵 Sending play request to Spotify API...`);
             const response = await fetch(
                 `https://api.spotify.com/v1/me/player/play?device_id=${this.deviceId}`,
                 {
@@ -129,12 +146,55 @@ class SpotifyPlayer {
             );
 
             if (!response.ok) {
-                throw new Error(`Spotify API error: ${response.status}`);
+                const errorText = await response.text();
+                console.error(`❌ Spotify API error: ${response.status}`, errorText);
+                throw new Error(`Spotify API error: ${response.status} - ${errorText}`);
             }
+
+            console.log(`✅ Track started playing successfully`);
         } catch (error) {
-            console.error('Error playing track:', error);
+            console.error('❌ Error playing track:', error);
             // Fallback to opening in Spotify
             window.open(`https://open.spotify.com/track/${trackId}`, '_blank');
+        }
+    }
+
+    async ensureDeviceActive() {
+        try {
+            const response = await fetch('https://api.spotify.com/v1/me/player/devices', {
+                headers: {
+                    'Authorization': `Bearer ${this.accessToken}`
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error(`Spotify API error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            if (!data.devices) {
+                throw new Error('No devices found in Spotify API response');
+            }
+
+            const ourDevice = data.devices.find(device => device.id === this.deviceId);
+
+            if (!ourDevice || !ourDevice.is_active) {
+                console.log('🎧 Transferring playback to our device...');
+                // Transfer playback to our device
+                await fetch('https://api.spotify.com/v1/me/player', {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${this.accessToken}`
+                    },
+                    body: JSON.stringify({
+                        device_ids: [this.deviceId],
+                        play: false
+                    })
+                });
+            }
+        } catch (error) {
+            console.error('Error ensuring device active:', error);
         }
     }
 
@@ -148,6 +208,32 @@ class SpotifyPlayer {
             await this.player.togglePlay();
         } catch (error) {
             console.error('Error toggling playback:', error);
+        }
+    }
+
+    async seek(positionMs) {
+        if (!this.player || !this.isPlayerReady) {
+            console.log('Player not ready for seeking');
+            return;
+        }
+
+        try {
+            await this.player.seek(positionMs);
+        } catch (error) {
+            console.error('Error seeking:', error);
+        }
+    }
+
+    async getCurrentState() {
+        if (!this.player || !this.isPlayerReady) {
+            return null;
+        }
+
+        try {
+            return await this.player.getCurrentState();
+        } catch (error) {
+            console.error('Error getting current state:', error);
+            return null;
         }
     }
 

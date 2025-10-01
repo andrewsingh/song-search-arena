@@ -23,11 +23,14 @@ def get_next_task(supabase: Client, rater_id: str, tracks: Dict[str, Any]) -> Op
     Get the next task for a rater using the scheduler algorithm.
 
     Algorithm:
-    1. Group queries by how many times the rater has seen them
-    2. Select from the group with minimum seen count
-    3. Within that group, find the most underfilled task
-    4. Break ties randomly
-    5. Stop when rater has seen all queries (S-1) times, where S = number of systems
+    1. Check if rater has an incomplete assigned task - if yes, return that
+    2. Group queries by how many times the rater has seen them
+    3. Select from the group with minimum seen count
+    4. Within that group, find the most underfilled task
+    5. Break ties randomly
+    6. Stop when rater has seen all queries (S-1) times, where S = number of systems
+
+    Invariant: A rater can only have ONE incomplete assigned task at a time.
 
     Args:
         supabase: Supabase client
@@ -37,15 +40,38 @@ def get_next_task(supabase: Client, rater_id: str, tracks: Dict[str, Any]) -> Op
     Returns:
         Task dict with all necessary data for rendering, or None if no tasks available
     """
+    # First, check if rater has an incomplete assigned task
+    incomplete_assignments = supabase.table('task_assignments').select(
+        'task_id, assigned_at'
+    ).eq('rater_id', rater_id).eq('completed', False).execute()
+
+    if incomplete_assignments.data:
+        # Return the existing incomplete task
+        incomplete_task_id = incomplete_assignments.data[0]['task_id']
+        logger.info(f"Rater {rater_id} has incomplete task {incomplete_task_id}, returning that task")
+
+        # Get the task details
+        task_result = supabase.table('tasks').select('*').eq('task_id', incomplete_task_id).execute()
+        if task_result.data:
+            task = task_result.data[0]
+            return build_task_data(supabase, task, rater_id, tracks)
+        else:
+            logger.error(f"Task {incomplete_task_id} not found in database")
+            # Clean up the orphaned assignment
+            supabase.table('task_assignments').delete().eq('task_id', incomplete_task_id).eq('rater_id', rater_id).execute()
+
+    # No incomplete task - proceed with regular assignment logic
     # Get all queries
     queries_result = supabase.table('queries').select('query_id').execute()
     all_query_ids = {q['query_id'] for q in queries_result.data}
+
+    logger.info(f"Total queries in database: {len(all_query_ids)}")
 
     if not all_query_ids:
         logger.info(f"No queries available")
         return None
 
-    # Get rater's assignments grouped by query
+    # Get rater's assignments grouped by query (only completed ones for counting)
     assignments_result = supabase.table('task_assignments').select(
         'task_id, completed'
     ).eq('rater_id', rater_id).execute()
@@ -93,9 +119,13 @@ def get_next_task(supabase: Client, rater_id: str, tracks: Dict[str, Any]) -> Op
     all_tasks_result = supabase.table('tasks').select('*').in_('query_id', candidate_queries).execute()
     candidate_tasks = all_tasks_result.data
 
-    # Filter out tasks already assigned to this rater
-    assigned_task_ids = {a['task_id'] for a in assignments_result.data}
-    available_tasks = [t for t in candidate_tasks if t['task_id'] not in assigned_task_ids]
+    logger.info(f"Found {len(candidate_tasks)} candidate tasks for {len(candidate_queries)} queries")
+
+    # Filter out tasks already COMPLETED by this rater (not just assigned)
+    completed_task_ids = {a['task_id'] for a in assignments_result.data if a['completed']}
+    available_tasks = [t for t in candidate_tasks if t['task_id'] not in completed_task_ids]
+
+    logger.info(f"After filtering completed tasks: {len(available_tasks)} available (already completed: {len(completed_task_ids)})")
 
     if not available_tasks:
         logger.info(f"No available tasks for rater {rater_id}")
@@ -318,11 +348,15 @@ def get_rater_progress(supabase: Client, rater_id: str) -> Dict[str, Any]:
     # Check caps
     rater_result = supabase.table('raters').select('soft_cap, total_cap').eq('rater_id', rater_id).execute()
     if rater_result.data:
-        soft_cap = rater_result.data[0].get('soft_cap', constants.DEFAULT_SOFT_CAP)
-        total_cap = rater_result.data[0].get('total_cap', total_tasks)
+        soft_cap = rater_result.data[0].get('soft_cap') or constants.DEFAULT_SOFT_CAP
+        total_cap = rater_result.data[0].get('total_cap') or total_tasks
     else:
         soft_cap = constants.DEFAULT_SOFT_CAP
         total_cap = total_tasks
+
+    # Ensure caps are never None
+    soft_cap = soft_cap if soft_cap is not None else constants.DEFAULT_SOFT_CAP
+    total_cap = total_cap if total_cap is not None else total_tasks
 
     percentage = (completed_tasks / total_cap * 100) if total_cap > 0 else 0
 
