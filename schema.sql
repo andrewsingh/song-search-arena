@@ -110,7 +110,8 @@ CREATE TABLE IF NOT EXISTS raters (
     country TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     soft_cap INTEGER,
-    total_cap INTEGER
+    total_cap INTEGER,
+    spotify_refresh_token TEXT
 );
 
 -- Sessions table
@@ -147,13 +148,17 @@ CREATE INDEX IF NOT EXISTS idx_judgments_query ON judgments(query_id);
 CREATE INDEX IF NOT EXISTS idx_judgments_pair ON judgments(pair_id);
 
 -- Rater Spotify top artists/tracks
+-- Stores paginated API responses (50 items per row)
+-- Multiple rows per (rater_id, kind, time_range) with different batch_offset values
 CREATE TABLE IF NOT EXISTS rater_spotify_top (
     rater_id TEXT REFERENCES raters(rater_id) ON DELETE CASCADE,
     kind TEXT NOT NULL CHECK (kind IN ('artists', 'tracks')),
     time_range TEXT NOT NULL CHECK (time_range IN ('short_term', 'medium_term', 'long_term')),
+    batch_offset INTEGER NOT NULL DEFAULT 0,
     payload JSONB NOT NULL,
     captured_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (rater_id, kind, time_range)
+    PRIMARY KEY (rater_id, kind, time_range, batch_offset)
 );
 
 CREATE INDEX IF NOT EXISTS idx_rater_spotify_top_rater ON rater_spotify_top(rater_id);
+CREATE INDEX IF NOT EXISTS idx_rater_spotify_top_lookup ON rater_spotify_top(rater_id, kind, time_range);

@@ -7,6 +7,7 @@ import os
 import json
 import logging
 import uuid
+import threading
 from datetime import datetime, timezone
 from functools import wraps
 from typing import Optional, Dict, List, Any
@@ -118,6 +119,28 @@ def get_spotify_client(token_info: dict) -> Optional[spotipy.Spotify]:
         return spotipy.Spotify(auth=token_info['access_token'])
     except Exception as e:
         logger.error(f"Failed to create Spotify client: {e}")
+        return None
+
+
+def get_spotify_client_from_refresh_token(refresh_token: str) -> Optional[spotipy.Spotify]:
+    """
+    Create a Spotify client from a stored refresh token.
+    This allows us to make API calls outside of the user's active session.
+    """
+    try:
+        sp_oauth = SpotifyOAuth(
+            client_id=SPOTIFY_CLIENT_ID,
+            client_secret=SPOTIFY_CLIENT_SECRET,
+            redirect_uri="http://localhost:5000/callback",  # Not used for refresh
+            scope="user-read-email user-top-read streaming user-read-playback-state user-modify-playback-state"
+        )
+
+        # Get new access token using refresh token
+        token_info = sp_oauth.refresh_access_token(refresh_token)
+
+        return spotipy.Spotify(auth=token_info['access_token'])
+    except Exception as e:
+        logger.error(f"Failed to create Spotify client from refresh token: {e}")
         return None
 
 
@@ -243,20 +266,33 @@ def callback():
         # Check if rater exists in database
         result = supabase.table('raters').select('*').eq('rater_id', rater_id).execute()
 
-        if not result.data:
-            # New rater - insert into database
+        is_new_rater = not result.data
+
+        if is_new_rater:
+            # New rater - insert into database with refresh token
             rater_data = {
                 'rater_id': rater_id,
                 'display_name': user_profile.get('display_name'),
                 'email': user_profile.get('email'),
-                'country': user_profile.get('country')
+                'country': user_profile.get('country'),
+                'spotify_refresh_token': token_info.get('refresh_token')
             }
             supabase.table('raters').insert(rater_data).execute()
             logger.info(f"New rater registered: {rater_id}")
 
-            # Fetch and store top artists and tracks
-            fetch_and_store_spotify_top_items(sp, rater_id)
+            # Spawn background thread to collect Spotify data (non-blocking)
+            thread = threading.Thread(
+                target=fetch_spotify_data_background,
+                args=(rater_id,),
+                daemon=True
+            )
+            thread.start()
+            logger.info(f"Started background thread to collect Spotify data for {rater_id}")
         else:
+            # Update existing rater's refresh token (in case it changed)
+            supabase.table('raters').update({
+                'spotify_refresh_token': token_info.get('refresh_token')
+            }).eq('rater_id', rater_id).execute()
             logger.info(f"Existing rater logged in: {rater_id}")
 
         # Create new session
@@ -282,46 +318,198 @@ def logout():
     return redirect(url_for('eval_password_gate'))
 
 
+def clean_track_item(item: dict) -> dict:
+    """
+    Remove 'available_markets' from track items to reduce storage size.
+    This field appears in both item['available_markets'] and item['album']['available_markets'].
+    """
+    item = item.copy()
+
+    # Remove top-level available_markets
+    item.pop('available_markets', None)
+
+    # Remove album available_markets
+    if 'album' in item and isinstance(item['album'], dict):
+        item['album'].pop('available_markets', None)
+
+    return item
+
+
+def get_rater_top_items(rater_id: str, kind: str, time_range: str) -> list:
+    """
+    Retrieve and merge paginated Spotify top items for a rater.
+
+    Args:
+        rater_id: Rater ID
+        kind: 'artists' or 'tracks'
+        time_range: 'short_term', 'medium_term', or 'long_term'
+
+    Returns:
+        List of items merged from all paginated responses, sorted by batch_offset
+    """
+    try:
+        result = supabase.table('rater_spotify_top').select('payload, batch_offset').eq(
+            'rater_id', rater_id
+        ).eq('kind', kind).eq('time_range', time_range).order('batch_offset').execute()
+
+        if not result.data:
+            return []
+
+        # Merge all items from paginated responses
+        all_items = []
+        for row in result.data:
+            payload = row.get('payload', {})
+            items = payload.get('items', [])
+            all_items.extend(items)
+
+        return all_items
+
+    except Exception as e:
+        logger.error(f"Failed to retrieve {kind} for rater {rater_id} ({time_range}): {e}")
+        return []
+
+
 def fetch_and_store_spotify_top_items(sp: spotipy.Spotify, rater_id: str):
-    """Fetch and store user's top 50 artists and tracks for all time ranges."""
+    """
+    Fetch and store user's top artists and tracks for all time ranges.
+    Makes paginated API calls to retrieve more than 50 items per time range.
+    Collects all data in memory, then batch inserts to database at the end.
+    """
+    logger.info(f"Starting Spotify top items collection for rater {rater_id}")
+    total_items_collected = {'artists': 0, 'tracks': 0}
+    all_rows = []  # Collect all rows for batch insert
+    captured_at = datetime.now(timezone.utc).isoformat()
+
     for time_range in constants.SPOTIFY_TIME_RANGES:
         # Fetch top artists
-        try:
-            top_artists = sp.current_user_top_artists(
-                limit=constants.SPOTIFY_TOP_LIMIT,
-                time_range=time_range
-            )
+        kind = 'artists'
+        target_limit = constants.SPOTIFY_LIMITS[kind][time_range]
+        num_calls = (target_limit + constants.SPOTIFY_API_LIMIT_PER_CALL - 1) // constants.SPOTIFY_API_LIMIT_PER_CALL
 
-            artist_data = {
-                'rater_id': rater_id,
-                'kind': 'artists',
-                'time_range': time_range,
-                'payload': top_artists,
-                'captured_at': datetime.now(timezone.utc).isoformat()
-            }
-            supabase.table('rater_spotify_top').upsert(artist_data).execute()
-            logger.info(f"Stored top artists for {rater_id} ({time_range})")
-        except Exception as e:
-            logger.error(f"Failed to fetch top artists ({time_range}): {e}")
+        logger.info(f"Fetching top {kind} for {time_range}: target={target_limit}, calls={num_calls}")
+
+        for call_num in range(num_calls):
+            offset = call_num * constants.SPOTIFY_API_LIMIT_PER_CALL
+
+            try:
+                response = sp.current_user_top_artists(
+                    limit=constants.SPOTIFY_API_LIMIT_PER_CALL,
+                    offset=offset,
+                    time_range=time_range
+                )
+
+                items_returned = len(response.get('items', []))
+
+                if items_returned == 0:
+                    logger.info(f"  No more {kind} available at offset {offset}, stopping pagination")
+                    break
+
+                # Add to batch for later insertion
+                all_rows.append({
+                    'rater_id': rater_id,
+                    'kind': kind,
+                    'time_range': time_range,
+                    'batch_offset': offset,
+                    'payload': response,
+                    'captured_at': captured_at
+                })
+
+                total_items_collected[kind] += items_returned
+                logger.info(f"  Fetched {items_returned} {kind} at offset {offset} (call {call_num + 1}/{num_calls})")
+
+            except Exception as e:
+                logger.error(f"  Failed to fetch {kind} at offset {offset} ({time_range}): {e}")
+                # Continue with next batch despite failure
 
         # Fetch top tracks
-        try:
-            top_tracks = sp.current_user_top_tracks(
-                limit=constants.SPOTIFY_TOP_LIMIT,
-                time_range=time_range
-            )
+        kind = 'tracks'
+        target_limit = constants.SPOTIFY_LIMITS[kind][time_range]
+        num_calls = (target_limit + constants.SPOTIFY_API_LIMIT_PER_CALL - 1) // constants.SPOTIFY_API_LIMIT_PER_CALL
 
-            track_data = {
-                'rater_id': rater_id,
-                'kind': 'tracks',
-                'time_range': time_range,
-                'payload': top_tracks,
-                'captured_at': datetime.now(timezone.utc).isoformat()
-            }
-            supabase.table('rater_spotify_top').upsert(track_data).execute()
-            logger.info(f"Stored top tracks for {rater_id} ({time_range})")
+        logger.info(f"Fetching top {kind} for {time_range}: target={target_limit}, calls={num_calls}")
+
+        for call_num in range(num_calls):
+            offset = call_num * constants.SPOTIFY_API_LIMIT_PER_CALL
+
+            try:
+                response = sp.current_user_top_tracks(
+                    limit=constants.SPOTIFY_API_LIMIT_PER_CALL,
+                    offset=offset,
+                    time_range=time_range
+                )
+
+                items_returned = len(response.get('items', []))
+
+                if items_returned == 0:
+                    logger.info(f"  No more {kind} available at offset {offset}, stopping pagination")
+                    break
+
+                # Clean track items by removing available_markets
+                if 'items' in response:
+                    response['items'] = [clean_track_item(item) for item in response['items']]
+
+                # Add to batch for later insertion
+                all_rows.append({
+                    'rater_id': rater_id,
+                    'kind': kind,
+                    'time_range': time_range,
+                    'batch_offset': offset,
+                    'payload': response,
+                    'captured_at': captured_at
+                })
+
+                total_items_collected[kind] += items_returned
+                logger.info(f"  Fetched {items_returned} {kind} at offset {offset} (call {call_num + 1}/{num_calls})")
+
+            except Exception as e:
+                logger.error(f"  Failed to fetch {kind} at offset {offset} ({time_range}): {e}")
+                # Continue with next batch despite failure
+
+    # Batch insert all rows at once
+    if all_rows:
+        logger.info(f"Inserting {len(all_rows)} rows to database in single batch...")
+        try:
+            supabase.table('rater_spotify_top').upsert(all_rows).execute()
+            logger.info(f"Successfully stored all Spotify data for {rater_id}")
         except Exception as e:
-            logger.error(f"Failed to fetch top tracks ({time_range}): {e}")
+            logger.error(f"Failed to batch insert Spotify data for {rater_id}: {e}")
+            raise
+
+    logger.info(f"Completed Spotify top items collection for {rater_id}: "
+                f"artists={total_items_collected['artists']}, tracks={total_items_collected['tracks']}")
+
+
+def fetch_spotify_data_background(rater_id: str):
+    """
+    Background thread function to collect Spotify top items data.
+    Runs asynchronously to avoid blocking the user's page load.
+    """
+    logger.info(f"[Background] Starting Spotify data collection for rater {rater_id}")
+
+    try:
+        # Get rater's refresh token from database
+        result = supabase.table('raters').select('spotify_refresh_token').eq('rater_id', rater_id).execute()
+
+        if not result.data or not result.data[0].get('spotify_refresh_token'):
+            logger.error(f"[Background] No refresh token found for rater {rater_id}")
+            return
+
+        refresh_token = result.data[0]['spotify_refresh_token']
+
+        # Create Spotify client from refresh token
+        sp = get_spotify_client_from_refresh_token(refresh_token)
+
+        if not sp:
+            logger.error(f"[Background] Failed to create Spotify client for rater {rater_id}")
+            return
+
+        # Fetch and store top items
+        fetch_and_store_spotify_top_items(sp, rater_id)
+
+        logger.info(f"[Background] Successfully completed Spotify data collection for rater {rater_id}")
+
+    except Exception as e:
+        logger.error(f"[Background] Error collecting Spotify data for rater {rater_id}: {e}")
 
 
 # ===== Main Routes =====

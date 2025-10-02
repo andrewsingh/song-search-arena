@@ -26,8 +26,31 @@ MIN_CONFIDENCE = 1
 MAX_CONFIDENCE = 3
 
 # Spotify Top Items
-SPOTIFY_TOP_LIMIT = 50
+SPOTIFY_API_LIMIT_PER_CALL = 50  # Spotify API limit per request
+
+# Spotify Top Items Collection Limits (configurable)
+SPOTIFY_TOP_TRACKS_LONG_TERM = 1000
+SPOTIFY_TOP_TRACKS_MEDIUM_TERM = 500
+SPOTIFY_TOP_TRACKS_SHORT_TERM = 200
+SPOTIFY_TOP_ARTISTS_LONG_TERM = 300
+SPOTIFY_TOP_ARTISTS_MEDIUM_TERM = 200
+SPOTIFY_TOP_ARTISTS_SHORT_TERM = 100
+
 SPOTIFY_TIME_RANGES = ['short_term', 'medium_term', 'long_term']
+
+# Map time ranges to limits for each kind
+SPOTIFY_LIMITS = {
+    'tracks': {
+        'long_term': SPOTIFY_TOP_TRACKS_LONG_TERM,
+        'medium_term': SPOTIFY_TOP_TRACKS_MEDIUM_TERM,
+        'short_term': SPOTIFY_TOP_TRACKS_SHORT_TERM
+    },
+    'artists': {
+        'long_term': SPOTIFY_TOP_ARTISTS_LONG_TERM,
+        'medium_term': SPOTIFY_TOP_ARTISTS_MEDIUM_TERM,
+        'short_term': SPOTIFY_TOP_ARTISTS_SHORT_TERM
+    }
+}
 
 # Rater Caps
 DEFAULT_SOFT_CAP = 1000  # Soft limit per rater (high default, overridden per rater)
