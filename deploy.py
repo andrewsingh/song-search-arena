@@ -7,10 +7,11 @@ import os
 import sys
 from pathlib import Path
 
-# Add the song_search_arena directory to Python path
-sys.path.insert(0, str(Path(__file__).parent / 'song_search_arena'))
+# Add the parent directory to Python path
+sys.path.insert(0, str(Path(__file__).parent))
 
-from app import app, load_tracks_from_json
+# Import the app module (not from it yet - we need to set TRACKS first)
+import song_search_arena.app as app_module
 
 RAILWAY_VOLUME_MOUNT_PATH = os.getenv('RAILWAY_VOLUME_MOUNT_PATH', '/data')
 DATASET_NAME = os.getenv('DATASET_NAME', 'library_v3.1e')
@@ -40,14 +41,13 @@ def main():
     print(f"  Tracks metadata: {tracks_file}")
 
     # Load tracks metadata into global TRACKS dictionary
-    import song_search_arena.app as app_module
-    app_module.TRACKS = load_tracks_from_json(str(tracks_file))
+    app_module.TRACKS = app_module.load_tracks_from_json(str(tracks_file))
 
     print(f"Loaded {len(app_module.TRACKS)} track IDs")
 
     # Start the app
     print(f"Starting server on 0.0.0.0:{port}")
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app_module.app.run(host='0.0.0.0', port=port, debug=False)
 
 if __name__ == '__main__':
     main()
