@@ -378,14 +378,52 @@ def submit_judgment(
 
 def get_rater_progress(supabase: Client, rater_id: str) -> Dict[str, Any]:
     """
-    Get progress statistics for a rater.
+    Get progress statistics for a rater based on their eligible tasks.
 
     Returns:
-        Dict with total_tasks, completed_tasks, percentage
+        Dict with total_tasks (eligible for this rater), completed_tasks, percentage
     """
-    # Get total tasks available
-    total_tasks_result = supabase.table('tasks').select('task_id').execute()
-    total_tasks = len(total_tasks_result.data)
+    # Get rater's selected genres
+    rater_result = supabase.table('raters').select('selected_genres, soft_cap, total_cap').eq('rater_id', rater_id).execute()
+    if not rater_result.data:
+        # Rater not found, return empty progress
+        return {
+            'total_tasks': 0,
+            'completed_tasks': 0,
+            'assigned_tasks': 0,
+            'percentage': 0,
+            'soft_cap': constants.DEFAULT_SOFT_CAP,
+            'can_continue': False
+        }
+
+    rater = rater_result.data[0]
+    rater_genres_raw = rater.get('selected_genres', [])
+
+    # Default to all genres if rater hasn't selected any
+    if not rater_genres_raw:
+        rater_genres = set(constants.VALID_GENRES)
+    else:
+        rater_genres = set(rater_genres_raw)
+
+    # Get all queries with their genres
+    queries_result = supabase.table('queries').select('query_id, genres').execute()
+    all_queries = queries_result.data
+
+    # Filter queries by genre compatibility
+    eligible_query_ids = []
+    for query in all_queries:
+        query_genres = set(query.get('genres', []))
+        # Include if query has no genres (genre-agnostic) OR any overlap with rater genres
+        genre_compatible = not query_genres or bool(query_genres & rater_genres)
+        if genre_compatible:
+            eligible_query_ids.append(query['query_id'])
+
+    # Get all tasks for eligible queries
+    if eligible_query_ids:
+        eligible_tasks_result = supabase.table('tasks').select('task_id').in_('query_id', eligible_query_ids).execute()
+        total_eligible_tasks = len(eligible_tasks_result.data)
+    else:
+        total_eligible_tasks = 0
 
     # Get rater's completed assignments
     assignments_result = supabase.table('task_assignments').select('*').eq(
@@ -400,25 +438,23 @@ def get_rater_progress(supabase: Client, rater_id: str) -> Dict[str, Any]:
     assigned_tasks = len(all_assignments_result.data)
 
     # Check caps
-    rater_result = supabase.table('raters').select('soft_cap, total_cap').eq('rater_id', rater_id).execute()
-    if rater_result.data:
-        soft_cap = rater_result.data[0].get('soft_cap') or constants.DEFAULT_SOFT_CAP
-        total_cap = rater_result.data[0].get('total_cap') or total_tasks
-    else:
-        soft_cap = constants.DEFAULT_SOFT_CAP
-        total_cap = total_tasks
+    soft_cap = rater.get('soft_cap') or constants.DEFAULT_SOFT_CAP
+    total_cap = rater.get('total_cap') or total_eligible_tasks
 
     # Ensure caps are never None
     soft_cap = soft_cap if soft_cap is not None else constants.DEFAULT_SOFT_CAP
-    total_cap = total_cap if total_cap is not None else total_tasks
+    total_cap = total_cap if total_cap is not None else total_eligible_tasks
 
-    percentage = (completed_tasks / total_cap * 100) if total_cap > 0 else 0
+    # Use the minimum of total_cap and total_eligible_tasks as the effective total
+    effective_total = min(total_cap, total_eligible_tasks)
+
+    percentage = (completed_tasks / effective_total * 100) if effective_total > 0 else 0
 
     return {
-        'total_tasks': total_cap,
+        'total_tasks': effective_total,
         'completed_tasks': completed_tasks,
         'assigned_tasks': assigned_tasks,
         'percentage': round(percentage, 1),
         'soft_cap': soft_cap,
-        'can_continue': assigned_tasks < soft_cap and assigned_tasks < total_cap
+        'can_continue': assigned_tasks < soft_cap and assigned_tasks < effective_total
     }
