@@ -111,7 +111,8 @@ CREATE TABLE IF NOT EXISTS raters (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     soft_cap INTEGER,
     total_cap INTEGER,
-    spotify_refresh_token TEXT
+    spotify_refresh_token TEXT,
+    selected_genres TEXT[]
 );
 
 -- Sessions table

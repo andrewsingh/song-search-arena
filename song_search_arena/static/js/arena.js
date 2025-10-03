@@ -302,7 +302,7 @@ class ArenaApp {
 
             if (response.ok) {
                 this.elements.progressText.textContent =
-                    `Progress: ${data.completed_tasks}/${data.total_tasks} (${data.percentage}%)`;
+                    `Tasks Completed: ${data.completed_tasks}/${data.total_tasks} (${data.percentage}%)`;
             } else {
                 console.error('Progress API error:', data);
                 this.elements.progressText.textContent = 'Progress: N/A';

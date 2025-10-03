@@ -29,6 +29,7 @@ async function loadStats() {
                     <strong>Final K:</strong> ${policy.final_k}<br>
                     <strong>Max per Artist:</strong> ${policy.max_per_artist}<br>
                     <strong>Exclude Seed Artist:</strong> ${policy.exclude_seed_artist ? 'Yes' : 'No'}<br>
+                    <strong>Task Block Size:</strong> ${policy.task_block_size || 10}<br>
                     <strong>Hash:</strong> <code>${policy.hash || 'N/A'}</code>
                 `;
             }

@@ -18,17 +18,24 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-def get_next_task(supabase: Client, rater_id: str, tracks: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def get_next_task(
+    supabase: Client,
+    rater_id: str,
+    tracks: Dict[str, Any],
+    required_task_type: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
     """
     Get the next task for a rater using the scheduler algorithm.
 
     Algorithm:
     1. Check if rater has an incomplete assigned task - if yes, return that
-    2. Group queries by how many times the rater has seen them
-    3. Select from the group with minimum seen count
-    4. Within that group, find the most underfilled task
-    5. Break ties randomly
-    6. Stop when rater has seen all queries (S-1) times, where S = number of systems
+    2. Filter queries by rater's genre preferences
+    3. Filter queries by required task type (if specified)
+    4. Group queries by how many times the rater has seen them
+    5. Select from the group with minimum seen count
+    6. Within that group, find the most underfilled task
+    7. Break ties randomly
+    8. Stop when rater has seen all queries (S-1) times, where S = number of systems
 
     Invariant: A rater can only have ONE incomplete assigned task at a time.
 
@@ -36,6 +43,7 @@ def get_next_task(supabase: Client, rater_id: str, tracks: Dict[str, Any]) -> Op
         supabase: Supabase client
         rater_id: Rater ID
         tracks: Dictionary of track metadata
+        required_task_type: Optional task type filter ('text' or 'song')
 
     Returns:
         Task dict with all necessary data for rendering, or None if no tasks available
@@ -54,21 +62,59 @@ def get_next_task(supabase: Client, rater_id: str, tracks: Dict[str, Any]) -> Op
         task_result = supabase.table('tasks').select('*').eq('task_id', incomplete_task_id).execute()
         if task_result.data:
             task = task_result.data[0]
-            return build_task_data(supabase, task, rater_id, tracks)
+            task_data = build_task_data(supabase, task, rater_id, tracks)
+            # Check if build_task_data returned None (e.g., missing final lists)
+            if task_data:
+                # Mark this as a returning incomplete task (not a new assignment)
+                task_data['is_new_assignment'] = False
+                return task_data
+            else:
+                # Task data couldn't be built, clean up and continue to get new task
+                logger.error(f"Could not build task data for incomplete task {incomplete_task_id}, cleaning up")
+                supabase.table('task_assignments').delete().eq('task_id', incomplete_task_id).eq('rater_id', rater_id).execute()
         else:
             logger.error(f"Task {incomplete_task_id} not found in database")
             # Clean up the orphaned assignment
             supabase.table('task_assignments').delete().eq('task_id', incomplete_task_id).eq('rater_id', rater_id).execute()
 
     # No incomplete task - proceed with regular assignment logic
-    # Get all queries
-    queries_result = supabase.table('queries').select('query_id').execute()
-    all_query_ids = {q['query_id'] for q in queries_result.data}
+    # Get rater's selected genres
+    rater_result = supabase.table('raters').select('selected_genres').eq('rater_id', rater_id).execute()
+    rater_genres_raw = rater_result.data[0].get('selected_genres', []) if rater_result.data else []
 
-    logger.info(f"Total queries in database: {len(all_query_ids)}")
+    # Default to all genres if rater hasn't selected any (defensive fallback)
+    if not rater_genres_raw:
+        logger.warning(f"Rater {rater_id} has no selected genres, defaulting to all genres")
+        rater_genres = set(constants.VALID_GENRES)
+    else:
+        rater_genres = set(rater_genres_raw)
+
+    logger.info(f"Rater {rater_id} genres: {rater_genres}")
+
+    # Get all queries with their genres and task types
+    queries_result = supabase.table('queries').select('query_id, genres, task_type').execute()
+    all_queries = queries_result.data
+
+    # Filter queries by genre compatibility and task type
+    compatible_queries = []
+    for query in all_queries:
+        query_genres = set(query.get('genres', []))
+
+        # Genre filter: Include if query has no genres (genre-agnostic) OR any overlap with rater genres
+        genre_compatible = not query_genres or bool(query_genres & rater_genres)
+
+        # Task type filter: Include if no required type OR matches required type
+        type_compatible = not required_task_type or query.get('task_type') == required_task_type
+
+        if genre_compatible and type_compatible:
+            compatible_queries.append(query['query_id'])
+
+    all_query_ids = set(compatible_queries)
+
+    logger.info(f"Total queries: {len(all_queries)}, compatible queries: {len(all_query_ids)} (genre filter + task type filter: {required_task_type})")
 
     if not all_query_ids:
-        logger.info(f"No queries available")
+        logger.info(f"No compatible queries available for rater {rater_id}")
         return None
 
     # Get rater's assignments grouped by query (only completed ones for counting)
@@ -150,6 +196,14 @@ def get_next_task(supabase: Client, rater_id: str, tracks: Dict[str, Any]) -> Op
 
     # Build full task data with randomization
     task_data = build_task_data(supabase, best_task, rater_id, tracks)
+
+    # Check if build_task_data returned None (e.g., missing final lists)
+    if not task_data:
+        logger.error(f"Could not build task data for task {best_task['task_id']}, returning None")
+        return None
+
+    # Mark this as a new assignment (should increment block counter)
+    task_data['is_new_assignment'] = True
 
     return task_data
 

@@ -304,7 +304,21 @@ def callback():
         session_result = supabase.table('sessions').insert(session_data).execute()
         session['session_id'] = session_result.data[0]['session_id']
 
-        return redirect(url_for('index'))
+        # Check if rater has selected genres
+        # New raters always need to select genres
+        # Existing raters without genres also need to select
+        if is_new_rater:
+            # New rater - always redirect to genre selection
+            return redirect(url_for('genre_selection'))
+        else:
+            # Existing rater - check if they have genres
+            has_genres = result.data[0].get('selected_genres')
+            if not has_genres:
+                # Redirect to genre selection
+                return redirect(url_for('genre_selection'))
+            else:
+                # Proceed to eval interface
+                return redirect(url_for('index'))
 
     except Exception as e:
         logger.error(f"OAuth callback error: {e}")
@@ -313,9 +327,56 @@ def callback():
 
 @app.route('/logout')
 def logout():
-    """Logout and clear session."""
+    """Logout and clear session (including block state)."""
     session.clear()
     return redirect(url_for('eval_password_gate'))
+
+
+@app.route('/genre-selection', methods=['GET', 'POST'])
+@eval_password_required
+@spotify_auth_required
+def genre_selection():
+    """Genre selection page for new raters."""
+    rater_id = session.get('rater_id')
+
+    if request.method == 'POST':
+        # Get selected genres from form
+        selected_genres = request.form.getlist('genres')
+
+        # Validate at least one genre selected
+        if not selected_genres:
+            genres = [{'value': g, 'display': constants.GENRE_DISPLAY_NAMES[g]} for g in constants.VALID_GENRES]
+            return render_template('genre_selection.html',
+                                 genres=genres,
+                                 error="Please select at least one genre.")
+
+        # Validate genres are valid
+        if not all(g in constants.VALID_GENRES for g in selected_genres):
+            genres = [{'value': g, 'display': constants.GENRE_DISPLAY_NAMES[g]} for g in constants.VALID_GENRES]
+            return render_template('genre_selection.html',
+                                 genres=genres,
+                                 error="Invalid genre selection.")
+
+        # Save genres to database
+        try:
+            supabase.table('raters').update({
+                'selected_genres': selected_genres
+            }).eq('rater_id', rater_id).execute()
+
+            logger.info(f"Rater {rater_id} selected genres: {selected_genres}")
+
+            # Redirect to eval interface
+            return redirect(url_for('index'))
+        except Exception as e:
+            logger.error(f"Failed to save genres for rater {rater_id}: {e}")
+            genres = [{'value': g, 'display': constants.GENRE_DISPLAY_NAMES[g]} for g in constants.VALID_GENRES]
+            return render_template('genre_selection.html',
+                                 genres=genres,
+                                 error="Failed to save genre preferences. Please try again.")
+
+    # GET request - show genre selection form
+    genres = [{'value': g, 'display': constants.GENRE_DISPLAY_NAMES[g]} for g in constants.VALID_GENRES]
+    return render_template('genre_selection.html', genres=genres)
 
 
 def clean_track_item(item: dict) -> dict:
@@ -544,14 +605,43 @@ def get_token():
 @eval_password_required
 @spotify_auth_required
 def get_task():
-    """Get next task for rater."""
+    """Get next task for rater with task blocking."""
     try:
         rater_id = session.get('rater_id')
         if not rater_id:
             return jsonify({'error': constants.ERROR_NOT_AUTHENTICATED}), 401
 
-        # Get next task from scheduler
-        task_data = scheduler.get_next_task(supabase, rater_id, TRACKS)
+        # Get active policy for task_block_size
+        policy = db_utils.get_active_policy(supabase)
+        if not policy:
+            return jsonify({'error': constants.ERROR_NO_ACTIVE_POLICY}), 500
+
+        task_block_size = policy['policy_json'].get('task_block_size', constants.DEFAULT_TASK_BLOCK_SIZE)
+
+        # Initialize block state if not present (always start with text)
+        if 'current_block_type' not in session:
+            session['current_block_type'] = 'text'
+            session['tasks_in_current_block'] = 0
+            logger.info(f"Initialized block state for rater {rater_id}: type=text, count=0")
+
+        current_block_type = session['current_block_type']
+
+        # Get next task from scheduler with block type filter
+        task_data = scheduler.get_next_task(supabase, rater_id, TRACKS, required_task_type=current_block_type)
+
+        # If no tasks available for current block type, try switching to other type
+        if not task_data:
+            other_type = 'song' if current_block_type == 'text' else 'text'
+            logger.info(f"No tasks for {current_block_type}, trying {other_type}")
+            task_data = scheduler.get_next_task(supabase, rater_id, TRACKS, required_task_type=other_type)
+
+            if task_data:
+                # Switch block type early due to unavailability
+                # Note: We don't reset counter to 0 - we keep counting across the switch
+                # This ensures blocks stay consistent even when task types run out
+                current_block_type = other_type  # Update local variable too
+                session['current_block_type'] = other_type
+                logger.info(f"Switched block type early to {other_type} (no tasks for previous type), keeping counter at {session['tasks_in_current_block']}")
 
         if not task_data:
             return jsonify({
@@ -569,6 +659,23 @@ def get_task():
             'rng_seed': task_data['rng_seed'],
             'presented_at': datetime.now(timezone.utc).isoformat()
         }
+
+        # Add block type to response (this task belongs to the current block)
+        task_data['block_type'] = current_block_type
+
+        # Only increment block counter for new assignments (not returning incomplete tasks)
+        is_new_assignment = task_data.get('is_new_assignment', True)
+
+        if is_new_assignment:
+            session['tasks_in_current_block'] += 1
+
+            if session['tasks_in_current_block'] >= task_block_size:
+                # Switch block type for next task
+                session['current_block_type'] = 'song' if current_block_type == 'text' else 'text'
+                session['tasks_in_current_block'] = 0
+                logger.info(f"Completed block of {task_block_size} {current_block_type} tasks, switching to {session['current_block_type']}")
+        else:
+            logger.info(f"Returning incomplete task, not incrementing block counter")
 
         return jsonify({'task': task_data}), 200
 
@@ -693,8 +800,8 @@ def upload_queries():
                 'errors': validation_errors
             }), 400
 
-        # Insert queries
-        count, errors = db_utils.insert_queries(supabase, queries)
+        # Insert queries (pass TRACKS for validation)
+        count, errors = db_utils.insert_queries(supabase, queries, TRACKS)
 
         if errors:
             return jsonify({

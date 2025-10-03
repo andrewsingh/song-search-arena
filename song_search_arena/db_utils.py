@@ -29,9 +29,15 @@ def compute_hash(data: Dict[str, Any]) -> str:
 
 # ===== Query Operations =====
 
-def insert_queries(supabase: Client, queries: List[models.EvalQuery]) -> Tuple[int, List[str]]:
+def insert_queries(supabase: Client, queries: List[models.EvalQuery], tracks: Dict[str, Any] = None) -> Tuple[int, List[str]]:
     """
     Insert queries into database.
+
+    Args:
+        supabase: Supabase client
+        queries: List of queries to insert
+        tracks: In-memory tracks dictionary (optional, for validation)
+
     Returns: (count_inserted, errors)
     """
     errors = []
@@ -49,12 +55,14 @@ def insert_queries(supabase: Client, queries: List[models.EvalQuery]) -> Tuple[i
                 'era': query.era
             }
 
-            # Check if seed track exists for song queries
+            # Check if seed track exists for song queries (use in-memory tracks if available)
             if query.type == constants.TASK_TYPE_SONG and query.track_id:
-                track_result = supabase.table('tracks').select('track_id').eq('track_id', query.track_id).execute()
-                if not track_result.data:
-                    errors.append(f"Track {query.track_id} not found for query {query.id}")
-                    continue
+                if tracks is not None:
+                    # Check in-memory tracks dictionary
+                    if query.track_id not in tracks:
+                        errors.append(f"Track {query.track_id} not found in tracks metadata for query {query.id}")
+                        continue
+                # If tracks dict not provided, skip validation (for backwards compatibility)
 
             # Upsert query
             supabase.table('queries').upsert(data).execute()

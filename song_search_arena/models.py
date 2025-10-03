@@ -96,6 +96,10 @@ class Policy(BaseModel):
         constants.DEFAULT_EXCLUDE_SEED_ARTIST,
         description="Exclude seed artist in song-to-song"
     )
+    task_block_size: int = Field(
+        constants.DEFAULT_TASK_BLOCK_SIZE,
+        description="Number of tasks per block before switching task type"
+    )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON storage."""
@@ -104,7 +108,8 @@ class Policy(BaseModel):
             'retrieval_depth_k': self.retrieval_depth_k,
             'final_k': self.final_k,
             'max_per_artist': self.max_per_artist,
-            'exclude_seed_artist': self.exclude_seed_artist
+            'exclude_seed_artist': self.exclude_seed_artist,
+            'task_block_size': self.task_block_size
         }
 
 

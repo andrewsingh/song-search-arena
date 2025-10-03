@@ -8,6 +8,7 @@ DEFAULT_RETRIEVAL_DEPTH_K = int(os.environ.get('RETRIEVAL_DEPTH_K', 50))
 DEFAULT_FINAL_K = int(os.environ.get('FINAL_K', 5))
 DEFAULT_MAX_PER_ARTIST = 1
 DEFAULT_EXCLUDE_SEED_ARTIST = os.environ.get('EXCLUDE_SEED_ARTIST', 'true').lower() == 'true'
+DEFAULT_TASK_BLOCK_SIZE = 10
 DEFAULT_POLICY_VERSION = 'discovery-v1'
 
 # Task Types
@@ -37,6 +38,14 @@ SPOTIFY_TOP_ARTISTS_MEDIUM_TERM = 200
 SPOTIFY_TOP_ARTISTS_SHORT_TERM = 100
 
 SPOTIFY_TIME_RANGES = ['short_term', 'medium_term', 'long_term']
+
+# Genre Options
+VALID_GENRES = ['pop', 'hip_hop', 'edm']
+GENRE_DISPLAY_NAMES = {
+    'pop': 'Pop',
+    'hip_hop': 'Hip-Hop',
+    'edm': 'EDM'
+}
 
 # Map time ranges to limits for each kind
 SPOTIFY_LIMITS = {
