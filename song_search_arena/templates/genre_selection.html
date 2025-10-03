@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Select Your Genres - Song Search Arena</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/genre_selection.css') }}">
+</head>
+<body>
+    <div class="genre-selection-container">
+        <div class="genre-selection-card">
+            <h1>Welcome to the Song Search Arena!</h1>
+
+            <div class="instructions-section">
+                <h2>Instructions</h2>
+                <ul class="instructions-list">
+                    <li>For each task, you'll see a prompt (either a text description or a seed song) and two anonymous lists of five songs.</li>
+                    <li>Please pick the list that better matches the prompt overall. Try to judge the song lists by their relevance to the prompt, rather than by your own music taste. If they feel equally good, choose Tie.</li>
+                    <li>Then rate how confident you are in your answer (Low, Medium, High).</li>
+                    <li>You can click on each song to play it in the app through Spotify.</li>
+                </ul>
+            </div>
+
+            <div class="genre-section">
+                <h2>Select Your Genres</h2>
+                <p class="subtitle">
+                    Choose which genres of music you're comfortable evaluating.
+                    You can opt out of genres you're not familiar with.
+                </p>
+            </div>
+
+            {% if error %}
+            <div class="error-message">{{ error }}</div>
+            {% endif %}
+
+            <form id="genre-form" method="POST" action="{{ url_for('genre_selection') }}">
+                <div class="genre-checkboxes">
+                    {% for genre in genres %}
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="genres" value="{{ genre.value }}" checked>
+                        <span class="checkbox-custom"></span>
+                        <span class="genre-name">{{ genre.display }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+
+                <div class="error-message" id="validation-error" style="display: none;">
+                    Please select at least one genre.
+                </div>
+
+                <button type="submit" class="btn-primary">
+                    Enter the Arena
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/genre-selection.js') }}"></script>
+</body>
+</html>
