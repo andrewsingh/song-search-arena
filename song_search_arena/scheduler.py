@@ -177,17 +177,23 @@ def get_next_task(
         logger.info(f"No available tasks for rater {rater_id}")
         return None
 
-    # Find most underfilled task among available tasks
-    best_task = None
+    # Find most underfilled task among available tasks (with random tie-breaking)
+    best_tasks = []
     min_fill_ratio = float('inf')
 
     for task in available_tasks:
         fill_ratio = task['collected_judgments'] / task['target_judgments']
         if fill_ratio < min_fill_ratio:
             min_fill_ratio = fill_ratio
-            best_task = task
+            best_tasks = [task]
+        elif fill_ratio == min_fill_ratio:
+            best_tasks.append(task)
 
-    if not best_task:
+    # Randomly select from tied tasks
+    if best_tasks:
+        best_task = random.choice(best_tasks)
+        logger.info(f"Selected task {best_task['task_id']} from {len(best_tasks)} tasks with fill_ratio={min_fill_ratio:.2f}")
+    else:
         logger.info(f"No best task found for rater {rater_id}")
         return None
 
