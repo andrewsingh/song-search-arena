@@ -58,7 +58,6 @@
     align-items: center;
     gap: 8px;
     padding: 6px 12px;
-    background: rgba(255, 255, 255, 0.05);
     border-radius: 6px;
     font-size: 13px;
 }
@@ -209,6 +208,7 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    text-wrap: auto;
 }
 
 .track-artist {
@@ -422,8 +422,8 @@
 /* Spotify Attribution */
 .spotify-attribution {
     position: absolute;
-    top: 8px;
-    right: 16px;
+    top: 12px;
+    right: 12px;
     z-index: 1001;
 }
 
