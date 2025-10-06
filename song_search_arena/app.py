@@ -110,7 +110,7 @@ def get_spotify_oauth():
         client_secret=SPOTIFY_CLIENT_SECRET,
         redirect_uri=redirect_uri,
         scope=scope,
-        show_dialog=True,  # Force auth dialog to prevent cached redirects
+        show_dialog=False,
         cache_handler=MemoryCacheHandler()  # ensure tokens are not cached across users on disk
     )
 
@@ -254,7 +254,6 @@ def login():
 
     sp_oauth = get_spotify_oauth()
     auth_url = sp_oauth.get_authorize_url()
-    logger.info(f"Redirecting to Spotify auth URL: {auth_url[:100]}...")
     return redirect(auth_url)
 
 
@@ -264,10 +263,7 @@ def callback():
     try:
         sp_oauth = get_spotify_oauth()
         code = request.args.get('code')
-        logger.info(f"Callback received with code: {code[:20] if code else 'None'}...")
-
         token_info = sp_oauth.get_access_token(code)
-        logger.info(f"Token exchange successful. Token type: {token_info.get('token_type')}, has refresh_token: {bool(token_info.get('refresh_token'))}")
         session['token_info'] = token_info
 
         # Get Spotify user profile
@@ -275,7 +271,6 @@ def callback():
         if not sp:
             raise Exception("Failed to create Spotify client")
 
-        logger.info(f"Calling sp.current_user() with access_token ending in: ...{token_info.get('access_token', '')[-20:]}")
         user_profile = sp.current_user()
         rater_id = user_profile['id']
         logger.info(f"Spotify user authenticated: rater_id={rater_id}, display_name={user_profile.get('display_name')}")
