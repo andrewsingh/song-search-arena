@@ -17,6 +17,7 @@ from flask_session import Session
 from dotenv import load_dotenv
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
+from spotipy.cache_handler import MemoryCacheHandler
 from supabase import create_client, Client
 
 try:
@@ -109,7 +110,8 @@ def get_spotify_oauth():
         client_secret=SPOTIFY_CLIENT_SECRET,
         redirect_uri=redirect_uri,
         scope=scope,
-        show_dialog=False
+        show_dialog=False,
+        cache_handler=MemoryCacheHandler()  # ensure tokens are not cached across users on disk
     )
 
 
@@ -132,7 +134,8 @@ def get_spotify_client_from_refresh_token(refresh_token: str) -> Optional[spotip
             client_id=SPOTIFY_CLIENT_ID,
             client_secret=SPOTIFY_CLIENT_SECRET,
             redirect_uri="http://localhost:5000/callback",  # Not used for refresh
-            scope="user-read-private user-read-email user-top-read streaming user-read-playback-state user-modify-playback-state"
+            scope="user-read-private user-read-email user-top-read streaming user-read-playback-state user-modify-playback-state",
+            cache_handler=MemoryCacheHandler()
         )
 
         # Get new access token using refresh token
