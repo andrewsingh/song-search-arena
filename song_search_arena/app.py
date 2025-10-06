@@ -240,6 +240,15 @@ def admin_password_gate():
 @eval_password_required
 def login():
     """Spotify login."""
+    # Clear any existing rater session data to force fresh OAuth
+    existing_rater_id = session.get('rater_id')
+    if existing_rater_id:
+        logger.warning(f"/login called but session already has rater_id={existing_rater_id}. Clearing session.")
+    session.pop('rater_id', None)
+    session.pop('token_info', None)
+    session.pop('session_id', None)
+    logger.info("Starting new OAuth flow - cleared existing session data")
+
     sp_oauth = get_spotify_oauth()
     auth_url = sp_oauth.get_authorize_url()
     return redirect(auth_url)
@@ -340,6 +349,29 @@ def logout():
 def genre_selection():
     """Genre selection page for new raters."""
     rater_id = session.get('rater_id')
+
+    if not rater_id:
+        logger.error("Genre selection accessed without rater_id in session!")
+        return redirect(url_for('login'))
+
+    # Verify that the rater_id in session matches the current Spotify token
+    # This prevents session hijacking where an old rater_id is reused
+    try:
+        token_info = session.get('token_info')
+        sp = get_spotify_client(token_info)
+        if sp:
+            current_user = sp.current_user()
+            spotify_user_id = current_user['id']
+            if spotify_user_id != rater_id:
+                logger.error(f"Session rater_id mismatch! Session has {rater_id} but Spotify token is for {spotify_user_id}. Clearing session.")
+                session.clear()
+                return redirect(url_for('login'))
+    except Exception as e:
+        logger.error(f"Failed to verify rater_id against Spotify token: {e}. Clearing session.")
+        session.clear()
+        return redirect(url_for('login'))
+
+    logger.info(f"Genre selection page accessed by rater {rater_id} (method: {request.method})")
 
     if request.method == 'POST':
         # Get selected genres from form
