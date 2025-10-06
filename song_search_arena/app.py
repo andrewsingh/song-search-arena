@@ -102,7 +102,7 @@ def get_spotify_oauth():
 
     logger.info(f"Using OAuth redirect URI: {redirect_uri}")
 
-    scope = "user-read-email user-top-read streaming user-read-playback-state user-modify-playback-state"
+    scope = "user-read-private user-read-email user-top-read streaming user-read-playback-state user-modify-playback-state"
 
     return SpotifyOAuth(
         client_id=SPOTIFY_CLIENT_ID,
@@ -132,7 +132,7 @@ def get_spotify_client_from_refresh_token(refresh_token: str) -> Optional[spotip
             client_id=SPOTIFY_CLIENT_ID,
             client_secret=SPOTIFY_CLIENT_SECRET,
             redirect_uri="http://localhost:5000/callback",  # Not used for refresh
-            scope="user-read-email user-top-read streaming user-read-playback-state user-modify-playback-state"
+            scope="user-read-private user-read-email user-top-read streaming user-read-playback-state user-modify-playback-state"
         )
 
         # Get new access token using refresh token
