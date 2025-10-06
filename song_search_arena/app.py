@@ -261,10 +261,12 @@ def callback():
 
         user_profile = sp.current_user()
         rater_id = user_profile['id']
+        logger.info(f"Spotify user authenticated: rater_id={rater_id}, display_name={user_profile.get('display_name')}")
         session['rater_id'] = rater_id
 
         # Check if rater exists in database
         result = supabase.table('raters').select('*').eq('rater_id', rater_id).execute()
+        logger.info(f"Database lookup for rater_id={rater_id}: found {len(result.data)} rows")
 
         is_new_rater = not result.data
 
