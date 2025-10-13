@@ -111,7 +111,8 @@ def export_judgments_json(supabase: Client) -> str:
             'pair_id': task['pair_id'] if task else None,
             'task_type': query['task_type'] if query else None,
             'query_text': query.get('query_text') if query else None,
-            'seed_track_id': query.get('seed_track_id') if query else None
+            'seed_track_id': query.get('seed_track_id') if query else None,
+            'genres': query.get('genres') if query else None
         }
         enriched_judgments.append(enriched)
 
