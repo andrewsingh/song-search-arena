@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from functools import wraps
 from typing import Optional, Dict, List, Any
 
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, make_response
 from flask_session import Session
 from dotenv import load_dotenv
 import spotipy
@@ -1022,7 +1022,7 @@ def admin_progress():
 @app.route('/admin/export/judgments', methods=['POST'])
 @admin_password_required
 def export_judgments():
-    """Export judgments to CSV or JSON and upload to storage."""
+    """Export judgments to CSV or JSON and download directly."""
     try:
         data = request.get_json() or {}
         format = data.get('format', 'csv')
@@ -1030,15 +1030,24 @@ def export_judgments():
         if format not in ['csv', 'json']:
             return jsonify({'error': 'Invalid format. Must be csv or json'}), 400
 
-        result = export.export_and_upload(
-            supabase,
-            export_type='judgments',
-            format=format,
-            bucket_name=constants.EXPORT_BUCKET_NAME
-        )
+        # Generate export content
+        if format == 'csv':
+            content = export.export_judgments_csv(supabase)
+            mimetype = 'text/csv'
+        else:
+            content = export.export_judgments_json(supabase)
+            mimetype = 'application/json'
 
-        logger.info(f"Exported judgments to {result['file_path']}")
-        return jsonify(result), 200
+        # Create download response
+        timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%S')
+        filename = f"judgments_{timestamp}.{format}"
+
+        response = make_response(content)
+        response.headers['Content-Type'] = mimetype
+        response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+
+        logger.info(f"Exported judgments as {filename}")
+        return response
 
     except Exception as e:
         logger.error(f"Error exporting judgments: {e}")
@@ -1048,7 +1057,7 @@ def export_judgments():
 @app.route('/admin/export/final_lists', methods=['POST'])
 @admin_password_required
 def export_final_lists():
-    """Export final lists to CSV or JSON and upload to storage."""
+    """Export final lists to CSV or JSON and download directly."""
     try:
         data = request.get_json() or {}
         format = data.get('format', 'csv')
@@ -1057,16 +1066,24 @@ def export_final_lists():
         if format not in ['csv', 'json']:
             return jsonify({'error': 'Invalid format. Must be csv or json'}), 400
 
-        result = export.export_and_upload(
-            supabase,
-            export_type='final_lists',
-            format=format,
-            bucket_name=constants.EXPORT_BUCKET_NAME,
-            policy_version=policy_version
-        )
+        # Generate export content
+        if format == 'csv':
+            content = export.export_final_lists_csv(supabase, policy_version)
+            mimetype = 'text/csv'
+        else:
+            content = export.export_final_lists_json(supabase, policy_version)
+            mimetype = 'application/json'
 
-        logger.info(f"Exported final lists to {result['file_path']}")
-        return jsonify(result), 200
+        # Create download response
+        timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%S')
+        filename = f"final_lists_{timestamp}.{format}"
+
+        response = make_response(content)
+        response.headers['Content-Type'] = mimetype
+        response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+
+        logger.info(f"Exported final lists as {filename}")
+        return response
 
     except Exception as e:
         logger.error(f"Error exporting final lists: {e}")
@@ -1076,17 +1093,22 @@ def export_final_lists():
 @app.route('/admin/export/task_progress', methods=['POST'])
 @admin_password_required
 def export_task_progress():
-    """Export task progress to CSV and upload to storage."""
+    """Export task progress to CSV and download directly."""
     try:
-        result = export.export_and_upload(
-            supabase,
-            export_type='task_progress',
-            format='csv',
-            bucket_name=constants.EXPORT_BUCKET_NAME
-        )
+        # Generate export content
+        content = export.export_task_progress_csv(supabase)
+        mimetype = 'text/csv'
 
-        logger.info(f"Exported task progress to {result['file_path']}")
-        return jsonify(result), 200
+        # Create download response
+        timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%S')
+        filename = f"task_progress_{timestamp}.csv"
+
+        response = make_response(content)
+        response.headers['Content-Type'] = mimetype
+        response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+
+        logger.info(f"Exported task progress as {filename}")
+        return response
 
     except Exception as e:
         logger.error(f"Error exporting task progress: {e}")
@@ -1096,17 +1118,22 @@ def export_task_progress():
 @app.route('/admin/export/rater_stats', methods=['POST'])
 @admin_password_required
 def export_rater_stats():
-    """Export rater statistics to CSV and upload to storage."""
+    """Export rater statistics to CSV and download directly."""
     try:
-        result = export.export_and_upload(
-            supabase,
-            export_type='rater_stats',
-            format='csv',
-            bucket_name=constants.EXPORT_BUCKET_NAME
-        )
+        # Generate export content
+        content = export.export_rater_stats_csv(supabase)
+        mimetype = 'text/csv'
 
-        logger.info(f"Exported rater stats to {result['file_path']}")
-        return jsonify(result), 200
+        # Create download response
+        timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%S')
+        filename = f"rater_stats_{timestamp}.csv"
+
+        response = make_response(content)
+        response.headers['Content-Type'] = mimetype
+        response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+
+        logger.info(f"Exported rater stats as {filename}")
+        return response
 
     except Exception as e:
         logger.error(f"Error exporting rater stats: {e}")
