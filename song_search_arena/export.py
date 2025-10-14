@@ -24,29 +24,26 @@ def export_judgments_csv(supabase: Client) -> str:
     Export all judgments to CSV format.
 
     Returns CSV string with columns:
-    judgment_id, task_id, rater_id, session_id, choice, confidence,
-    left_system_id, right_system_id, query_id, task_type,
+    judgment_id, query_id, pair_id, rater_id, session_id, choice, confidence,
+    left_system_id, right_system_id, task_type,
     left_list, right_list, rng_seed, submitted_at
     """
     # Get all judgments with task details
     judgments_result = supabase.table('judgments').select(
-        'judgment_id, task_id, rater_id, session_id, choice, confidence, '
+        'judgment_id, query_id, pair_id, rater_id, session_id, choice, confidence, '
         'left_system_id, right_system_id, left_list, right_list, '
         'rng_seed, submitted_at'
     ).execute()
 
-    # Get task details to include query_id and task_type
-    tasks_result = supabase.table('tasks').select('task_id, query_id').execute()
-    task_to_query = {t['task_id']: t['query_id'] for t in tasks_result.data}
-
+    # Get task type from queries
     queries_result = supabase.table('queries').select('query_id, task_type').execute()
     query_to_type = {q['query_id']: q['task_type'] for q in queries_result.data}
 
     # Create CSV in memory
     output = io.StringIO()
     fieldnames = [
-        'judgment_id', 'task_id', 'rater_id', 'session_id', 'choice', 'confidence',
-        'left_system_id', 'right_system_id', 'query_id', 'task_type',
+        'judgment_id', 'query_id', 'pair_id', 'rater_id', 'session_id', 'choice', 'confidence',
+        'left_system_id', 'right_system_id', 'task_type',
         'left_list', 'right_list', 'rng_seed', 'submitted_at'
     ]
 
@@ -54,19 +51,19 @@ def export_judgments_csv(supabase: Client) -> str:
     writer.writeheader()
 
     for judgment in judgments_result.data:
-        query_id = task_to_query.get(judgment['task_id'])
+        query_id = judgment['query_id']
         task_type = query_to_type.get(query_id) if query_id else None
 
         row = {
             'judgment_id': judgment['judgment_id'],
-            'task_id': judgment['task_id'],
+            'query_id': query_id,
+            'pair_id': judgment['pair_id'],
             'rater_id': judgment['rater_id'],
             'session_id': judgment['session_id'],
             'choice': judgment['choice'],
             'confidence': judgment['confidence'],
             'left_system_id': judgment['left_system_id'],
             'right_system_id': judgment['right_system_id'],
-            'query_id': query_id,
             'task_type': task_type,
             'left_list': json.dumps(judgment['left_list']),
             'right_list': json.dumps(judgment['right_list']),
@@ -86,29 +83,22 @@ def export_judgments_json(supabase: Client) -> str:
     """
     # Get all judgments with task details
     judgments_result = supabase.table('judgments').select(
-        'judgment_id, task_id, rater_id, session_id, choice, confidence, '
+        'judgment_id, query_id, pair_id, rater_id, session_id, choice, confidence, '
         'left_system_id, right_system_id, left_list, right_list, '
         'rng_seed, submitted_at'
     ).execute()
-
-    # Get task details
-    tasks_result = supabase.table('tasks').select('task_id, query_id, pair_id').execute()
-    task_map = {t['task_id']: t for t in tasks_result.data}
 
     # Get queries
     queries_result = supabase.table('queries').select('*').execute()
     query_map = {q['query_id']: q for q in queries_result.data}
 
-    # Enrich judgments with query and task details
+    # Enrich judgments with query details
     enriched_judgments = []
     for judgment in judgments_result.data:
-        task = task_map.get(judgment['task_id'])
-        query = query_map.get(task['query_id']) if task else None
+        query = query_map.get(judgment['query_id'])
 
         enriched = {
             **judgment,
-            'query_id': task['query_id'] if task else None,
-            'pair_id': task['pair_id'] if task else None,
             'task_type': query['task_type'] if query else None,
             'query_text': query.get('query_text') if query else None,
             'seed_track_id': query.get('seed_track_id') if query else None,
@@ -203,12 +193,13 @@ def export_task_progress_csv(supabase: Client) -> str:
     pairs_result = supabase.table('pairs').select('pair_id, left_system_id, right_system_id').execute()
     pair_map = {p['pair_id']: p for p in pairs_result.data}
 
-    # Count completed judgments per task
-    judgments_result = supabase.table('judgments').select('task_id').execute()
+    # Count completed judgments per task (by query_id, pair_id)
+    judgments_result = supabase.table('judgments').select('query_id, pair_id').execute()
     judgment_counts = {}
     for j in judgments_result.data:
-        task_id = j['task_id']
-        judgment_counts[task_id] = judgment_counts.get(task_id, 0) + 1
+        # Tasks are uniquely identified by (query_id, pair_id)
+        task_key = (j['query_id'], j['pair_id'])
+        judgment_counts[task_key] = judgment_counts.get(task_key, 0) + 1
 
     # Create CSV in memory
     output = io.StringIO()
@@ -222,6 +213,7 @@ def export_task_progress_csv(supabase: Client) -> str:
 
     for task in tasks_result.data:
         pair = pair_map.get(task['pair_id'])
+        task_key = (task['query_id'], task['pair_id'])
 
         row = {
             'task_id': task['task_id'],
@@ -230,7 +222,7 @@ def export_task_progress_csv(supabase: Client) -> str:
             'left_system_id': pair['left_system_id'] if pair else None,
             'right_system_id': pair['right_system_id'] if pair else None,
             'target_judgments': task['target_judgments'],
-            'completed_judgments': judgment_counts.get(task['task_id'], 0),
+            'completed_judgments': judgment_counts.get(task_key, 0),
             'is_practice': task.get('is_practice', False)
         }
         writer.writerow(row)
@@ -251,12 +243,8 @@ def export_rater_stats_csv(supabase: Client) -> str:
 
     # Get all judgments
     judgments_result = supabase.table('judgments').select(
-        'rater_id, task_id, confidence, submitted_at'
+        'rater_id, query_id, confidence, submitted_at'
     ).execute()
-
-    # Get task to query mapping
-    tasks_result = supabase.table('tasks').select('task_id, query_id').execute()
-    task_to_query = {t['task_id']: t['query_id'] for t in tasks_result.data}
 
     # Compute stats per rater
     rater_stats = {}
@@ -275,7 +263,7 @@ def export_rater_stats_csv(supabase: Client) -> str:
         rater_stats[rater_id]['confidences'].append(judgment['confidence'])
         rater_stats[rater_id]['timestamps'].append(judgment['submitted_at'])
 
-        query_id = task_to_query.get(judgment['task_id'])
+        query_id = judgment.get('query_id')
         if query_id:
             rater_stats[rater_id]['unique_queries'].add(query_id)
 
