@@ -277,23 +277,35 @@ async function exportData(type, format) {
             body: JSON.stringify({ format })
         });
 
-        const result = await response.json();
-
         if (response.ok) {
-            // Create download link
-            const fileName = result.file_path.split('/').pop();
-            const downloadHtml = `
-                <div class="export-success">
-                    <p>✓ Export successful!</p>
-                    <p><strong>File:</strong> ${fileName}</p>
-                    <a href="${result.url}" target="_blank" class="download-link">Download ${format.toUpperCase()}</a>
-                </div>
-            `;
-            resultDiv.innerHTML = downloadHtml;
-            resultDiv.className = 'result-message success';
-            resultDiv.style.display = 'block';
+            // Get the filename from Content-Disposition header
+            const contentDisposition = response.headers.get('Content-Disposition');
+            const fileNameMatch = contentDisposition && contentDisposition.match(/filename=(.+)/);
+            const fileName = fileNameMatch ? fileNameMatch[1] : `${type}_export.${format}`;
+
+            // Get the file blob
+            const blob = await response.blob();
+
+            // Create a download link and trigger download
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+
+            showResult(resultDiv, `✓ Export successful! File downloaded: ${fileName}`, 'success');
         } else {
-            showResult(resultDiv, `Error: ${result.error || 'Export failed'}`, 'error');
+            // Try to parse error message
+            const errorText = await response.text();
+            try {
+                const errorJson = JSON.parse(errorText);
+                showResult(resultDiv, `Error: ${errorJson.error || 'Export failed'}`, 'error');
+            } catch {
+                showResult(resultDiv, `Error: ${errorText || 'Export failed'}`, 'error');
+            }
         }
     } catch (error) {
         showResult(resultDiv, `Error: ${error.message}`, 'error');
