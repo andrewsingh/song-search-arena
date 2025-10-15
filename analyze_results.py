@@ -164,7 +164,8 @@ def binomial_test_pvalue(successes: int, trials: int, p_null: float = 0.5) -> fl
 
 def compute_pairwise_stats(query_results: List[Dict],
                            stratification_type: str = 'overall',
-                           stratification_value: str = 'all') -> Dict:
+                           stratification_value: str = 'all',
+                           system_order: Optional[List[str]] = None) -> Dict:
     """
     Compute win rate statistics for a set of query results.
 
@@ -172,6 +173,7 @@ def compute_pairwise_stats(query_results: List[Dict],
         query_results: List of query-level results (after majority aggregation)
         stratification_type: Type of stratification ('overall', 'task_type', 'genre')
         stratification_value: Value of stratification ('all', 'text', 'song', 'pop', etc.)
+        system_order: Optional list of [system_a, system_b] to use instead of alphabetical ordering
 
     Returns:
         Dict with statistics
@@ -203,8 +205,15 @@ def compute_pairwise_stats(query_results: List[Dict],
     if len(all_systems) != 2:
         raise ValueError(f"Expected exactly 2 systems, found {len(all_systems)}: {all_systems}")
 
-    # Establish canonical ordering (alphabetical)
-    system_a, system_b = sorted(all_systems)
+    # Establish canonical ordering
+    if system_order:
+        # Use provided ordering
+        if set(system_order) != all_systems:
+            raise ValueError(f"Provided system_order {system_order} doesn't match systems in data {all_systems}")
+        system_a, system_b = system_order[0], system_order[1]
+    else:
+        # Default to alphabetical ordering
+        system_a, system_b = sorted(all_systems)
 
     # Count wins, accounting for which side each system is on
     wins_a = 0
@@ -303,13 +312,15 @@ def stratify_by_genre(query_results: List[Dict], judgments_by_query: Dict) -> Di
     return dict(stratified)
 
 
-def analyze_judgments(judgments: List[Dict], use_confidence: bool = False) -> pd.DataFrame:
+def analyze_judgments(judgments: List[Dict], use_confidence: bool = False,
+                      system_order: Optional[List[str]] = None) -> pd.DataFrame:
     """
     Analyze judgments and compute stratified statistics.
 
     Args:
         judgments: List of judgment dicts
         use_confidence: If True, use confidence-weighted voting
+        system_order: Optional list of [system_a, system_b] to use instead of alphabetical ordering
 
     Returns:
         DataFrame with statistics for all stratifications
@@ -340,19 +351,19 @@ def analyze_judgments(judgments: List[Dict], use_confidence: bool = False) -> pd
     all_stats = []
 
     # 1. Overall statistics
-    overall_stats = compute_pairwise_stats(query_results, 'overall', 'all')
+    overall_stats = compute_pairwise_stats(query_results, 'overall', 'all', system_order)
     all_stats.append(overall_stats)
 
     # 2. Stratify by task type
     by_task_type = stratify_by_task_type(query_results, judgments_by_query)
     for task_type, results in by_task_type.items():
-        stats = compute_pairwise_stats(results, 'task_type', task_type)
+        stats = compute_pairwise_stats(results, 'task_type', task_type, system_order)
         all_stats.append(stats)
 
     # 3. Stratify by genre
     by_genre = stratify_by_genre(query_results, judgments_by_query)
     for genre, results in by_genre.items():
-        stats = compute_pairwise_stats(results, 'genre', genre)
+        stats = compute_pairwise_stats(results, 'genre', genre, system_order)
         all_stats.append(stats)
 
     # Convert to DataFrame
@@ -386,6 +397,13 @@ def main():
         default='.',
         help='Output directory for results (default: current directory)'
     )
+    parser.add_argument(
+        '--system_order',
+        type=str,
+        nargs=2,
+        metavar=('SYSTEM_A', 'SYSTEM_B'),
+        help='Specify system ordering (default: alphabetical). Provide two system IDs.'
+    )
 
     args = parser.parse_args()
 
@@ -401,11 +419,17 @@ def main():
         print("No judgments found!")
         return
 
+    # Display system ordering
+    if args.system_order:
+        print(f"\nUsing custom system ordering: A={args.system_order[0]}, B={args.system_order[1]}")
+    else:
+        print("\nUsing default alphabetical system ordering")
+
     # Analyze with plain majority vote
     print("\n" + "="*60)
     print("PLAIN MAJORITY VOTE ANALYSIS")
     print("="*60)
-    plain_results = analyze_judgments(judgments, use_confidence=False)
+    plain_results = analyze_judgments(judgments, use_confidence=False, system_order=args.system_order)
 
     # Save plain results
     plain_csv = output_dir / 'results_plain_majority.csv'
@@ -419,7 +443,7 @@ def main():
     print("\n" + "="*60)
     print("CONFIDENCE-WEIGHTED ANALYSIS")
     print("="*60)
-    weighted_results = analyze_judgments(judgments, use_confidence=True)
+    weighted_results = analyze_judgments(judgments, use_confidence=True, system_order=args.system_order)
 
     # Save weighted results
     weighted_csv = output_dir / 'results_confidence_weighted.csv'
