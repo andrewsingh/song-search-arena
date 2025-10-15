@@ -1,6 +1,6 @@
 # Song Search Arena
 
-A lightweight web application for conductin blinded pairwise evaluations of music retrieval systems. The tool is **model-agnostic** and can be used with any type of music retrieval system (embeddings, symbolic features, hybrid models, collaborative filtering, etc.).
+A lightweight web application for conducting blinded pairwise evaluations of music retrieval systems. The tool is **model-agnostic** and can be used to evaluate any type of music retrieval approach (embeddings, symbolic features, hybrid models, collaborative filtering, etc.).
 
 ---
 
