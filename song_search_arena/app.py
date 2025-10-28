@@ -282,6 +282,10 @@ def callback():
 
         is_new_rater = not result.data
 
+        # Check if Spotify data exists for this rater
+        spotify_data_result = supabase.table('rater_spotify_top').select('rater_id').eq('rater_id', rater_id).limit(1).execute()
+        has_spotify_data = bool(spotify_data_result.data)
+
         if is_new_rater:
             # New rater - insert into database with refresh token
             rater_data = {
@@ -293,21 +297,23 @@ def callback():
             }
             supabase.table('raters').insert(rater_data).execute()
             logger.info(f"New rater registered: {rater_id}")
-
-            # Spawn background thread to collect Spotify data (non-blocking)
-            thread = threading.Thread(
-                target=fetch_spotify_data_background,
-                args=(rater_id,),
-                daemon=True
-            )
-            thread.start()
-            logger.info(f"Started background thread to collect Spotify data for {rater_id}")
         else:
             # Update existing rater's refresh token (in case it changed)
             supabase.table('raters').update({
                 'spotify_refresh_token': token_info.get('refresh_token')
             }).eq('rater_id', rater_id).execute()
             logger.info(f"Existing rater logged in: {rater_id}")
+
+        # Spawn background thread to collect Spotify data if needed (new rater OR missing data)
+        if is_new_rater or not has_spotify_data:
+            thread = threading.Thread(
+                target=fetch_spotify_data_background,
+                args=(rater_id,),
+                daemon=True
+            )
+            thread.start()
+            reason = "new rater" if is_new_rater else "missing Spotify data"
+            logger.info(f"Started background thread to collect Spotify data for {rater_id} ({reason})")
 
         # Create new session
         session_data = {
